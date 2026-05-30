@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "663642140874",
+    "project_id": "spiti-rideshare",
+    "storage_bucket": "spiti-rideshare.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:663642140874:android:cc6e4c4dce07d96cf80433",
+        "android_client_info": {
+          "package_name": "com.rideshare.spiti.ride_share_spiti"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBEYNaHSDIGHa-SXBu7d935cbZvzHldw90"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
