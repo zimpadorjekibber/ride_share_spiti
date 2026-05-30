@@ -89,6 +89,8 @@ class _PostRequestScreenState extends State<PostRequestScreen> {
       await LocalStorageService.saveProfile(_userProfile);
     }
 
+    if (!mounted) return;
+
     final request = PassengerRequest(
       id: generateRequestId(),
       passengerName: _nameController.text.trim(),
@@ -306,8 +308,9 @@ class _PostRequestScreenState extends State<PostRequestScreen> {
                     Row(
                       children: [
                         _counterBtn(Icons.remove, () {
-                          if (_seatsNeeded > 1)
+                          if (_seatsNeeded > 1) {
                             setState(() => _seatsNeeded--);
+                          }
                         }, isDark),
                         Padding(
                           padding:
@@ -321,8 +324,9 @@ class _PostRequestScreenState extends State<PostRequestScreen> {
                           ),
                         ),
                         _counterBtn(Icons.add, () {
-                          if (_seatsNeeded < 8)
+                          if (_seatsNeeded < 8) {
                             setState(() => _seatsNeeded++);
+                          }
                         }, isDark),
                       ],
                     ),

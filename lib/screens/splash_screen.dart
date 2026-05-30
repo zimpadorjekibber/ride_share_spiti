@@ -74,9 +74,9 @@ class _SplashScreenState extends State<SplashScreen>
     if (mounted) {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
-          pageBuilder: (_, __, ___) =>
+          pageBuilder: (context, animation, secondaryAnimation) =>
               seen ? const MainNavigationScreen() : const OnboardingScreen(),
-          transitionsBuilder: (_, anim, __, child) =>
+          transitionsBuilder: (context, anim, secondaryAnim, child) =>
               FadeTransition(opacity: anim, child: child),
           transitionDuration: const Duration(milliseconds: 600),
         ),
@@ -115,7 +115,7 @@ class _SplashScreenState extends State<SplashScreen>
           // Animated glow blob
           AnimatedBuilder(
             animation: _glowAnim,
-            builder: (_, __) => Center(
+            builder: (context, child) => Center(
               child: Container(
                 width: 280,
                 height: 280,

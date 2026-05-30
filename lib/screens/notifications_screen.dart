@@ -99,7 +99,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               : ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: _notifications.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  separatorBuilder: (context, index) => const SizedBox(height: 10),
                   itemBuilder: (context, i) {
                     final n = _notifications[i];
                     final isRead = n['read'] as bool? ?? true;

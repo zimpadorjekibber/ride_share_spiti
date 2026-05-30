@@ -291,6 +291,8 @@ class _DriverScreenState extends State<DriverScreen> {
       await LocalStorageService.saveProfile(_userProfile);
     }
 
+    if (!mounted) return;
+
     final formattedTime = "${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}";
     final newRide = Ride(
       id: "d_${DateTime.now().millisecondsSinceEpoch}",

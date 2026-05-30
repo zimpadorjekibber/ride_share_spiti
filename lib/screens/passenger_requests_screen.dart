@@ -114,7 +114,7 @@ class _PassengerRequestsScreenState extends State<PassengerRequestsScreen> {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: _routeFilters.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              separatorBuilder: (context, index) => const SizedBox(width: 8),
               itemBuilder: (_, i) {
                 final f = _routeFilters[i];
                 final selected = _filterRoute == f;
@@ -167,7 +167,7 @@ class _PassengerRequestsScreenState extends State<PassengerRequestsScreen> {
                 : ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
                     itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    separatorBuilder: (context, index) => const SizedBox(height: 12),
                     itemBuilder: (_, i) => _RequestCard(
                       request: filtered[i],
                       timeAgo: _timeAgo(filtered[i].createdAt),

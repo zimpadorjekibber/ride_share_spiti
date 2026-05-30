@@ -416,12 +416,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         Switch(
                           value: _profile.locationPermissionGranted,
-                          activeColor: const Color(0xFF10B981),
+                          activeThumbColor: const Color(0xFF10B981),
                           onChanged: (val) async {
                             setState(() {
                               _profile.locationPermissionGranted = val;
                             });
                             await LocalStorageService.saveProfile(_profile);
+                            if (!context.mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(val 

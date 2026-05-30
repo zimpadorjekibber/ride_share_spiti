@@ -163,7 +163,7 @@ class _SosScreenState extends State<SosScreen>
                     onTap: _triggerSOS,
                     child: AnimatedBuilder(
                       animation: _pulseAnim,
-                      builder: (_, __) => Transform.scale(
+                      builder: (context, child) => Transform.scale(
                         scale: _sosSent ? 0.9 : _pulseAnim.value,
                         child: Container(
                           width: 160,

@@ -577,7 +577,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     const SizedBox(width: 8),
                     Switch(
                       value: active,
-                      activeColor: const Color(0xFF10B981),
+                      activeThumbColor: const Color(0xFF10B981),
                       onChanged: (val) => _toggleAdStatus(index, val),
                     ),
                   ],
