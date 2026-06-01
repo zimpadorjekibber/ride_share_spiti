@@ -206,12 +206,15 @@ class _PostRequestScreenState extends State<PostRequestScreen> {
                     children: [
                       const Icon(Icons.verified, color: Color(0xFF818CF8), size: 18),
                       const SizedBox(width: 8),
-                      Text(
-                        "Broadcasting as: ${_userProfile.name} (${_userProfile.phone})",
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: primaryText,
+                      Expanded(
+                        child: Text(
+                          "Broadcasting as: ${_userProfile.name} (${_userProfile.phone})",
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: primaryText,
+                          ),
                         ),
                       ),
                     ],

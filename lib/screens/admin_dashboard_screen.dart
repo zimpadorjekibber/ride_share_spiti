@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/ride_model.dart';
+import '../models/stay_model.dart';
+import '../models/food_model.dart';
 import '../models/passenger_request_model.dart';
 import '../services/local_storage_service.dart';
+import '../services/firebase_service.dart';
+import 'admin_add_listing_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -18,6 +22,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   List<Map<String, dynamic>> _ads = [];
   List<Map<String, dynamic>> _verifications = [];
   bool _loading = true;
+  AppMode _adminMode = AppMode.ride; // ride / stay / food admin view
 
   // New Ad controller
   final _adTitleController = TextEditingController();
@@ -60,16 +65,97 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     await LocalStorageService.saveVerifications(list);
     await _loadAdminData();
     if (mounted) {
+      final name = list[index]['driverName'] ?? list[index]['hostName'] ?? 'User';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("✅ Documents for ${list[index]['driverName']} verified successfully!"),
+          content: Text("✅ Documents for $name verified successfully!"),
           backgroundColor: const Color(0xFF10B981),
         ),
       );
     }
   }
 
+  // ─── Clear Demo / Sample Data (keep real) ───────────
+  Future<void> _clearDemoData() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final rideP = Provider.of<RideProvider>(context, listen: false);
+    final stayP = Provider.of<StayProvider>(context, listen: false);
+    final foodP = Provider.of<FoodProvider>(context, listen: false);
+    final passP = Provider.of<PassengerRequestProvider>(context, listen: false);
+    final fb = FirebaseService();
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('🧹 Clear Demo Data?'),
+        content: const Text(
+          'This permanently removes ALL sample/demo listings, requests, reviews & ads.\n\n'
+          'Your REAL data (added by you & real users) is kept. Demo data will not come back.\n\n'
+          'Do this just before going live.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Clear Demo', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    await LocalStorageService.disableDemoSeeding();
+
+    // Cloud demo docs (demo id = no underscore)
+    bool demo(String id) => LocalStorageService.isDemoId(id);
+    for (final r in rideP.rides) {
+      if (demo(r.id)) await fb.deleteDoc('rides', r.id);
+    }
+    for (final s in stayP.stays) {
+      if (demo(s.id)) await fb.deleteDoc('stays', s.id);
+    }
+    for (final p in foodP.places) {
+      if (demo(p.id)) await fb.deleteDoc('food_places', p.id);
+    }
+    for (final r in stayP.stayRequests) {
+      if (demo(r.id)) await fb.deleteDoc('stay_requests', r.id);
+    }
+    for (final r in foodP.requests) {
+      if (demo(r.id)) await fb.deleteDoc('food_requests', r.id);
+    }
+    for (final r in passP.requests) {
+      if (demo(r.id)) await fb.deleteDoc('passenger_requests', r.id);
+    }
+    final reviews = await fb.fetchReviews();
+    for (final rv in reviews) {
+      if (demo(rv.id)) await fb.deleteDoc('reviews', rv.id);
+    }
+
+    await LocalStorageService.clearDemoLocalData();
+    await _loadAdminData();
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('🧹 Demo data cleared. Only real data remains — app is launch-ready!'),
+        backgroundColor: Color(0xFF10B981),
+        duration: Duration(seconds: 4),
+      ),
+    );
+  }
+
   // ─── Ads Actions ─────────────────────────────────────
+  Future<void> _deleteAd(int index) async {
+    final list = List<Map<String, dynamic>>.from(_ads);
+    final removed = list.removeAt(index);
+    await LocalStorageService.saveAds(list);
+    await _loadAdminData();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('🗑️ Removed ad: ${removed['title'] ?? ''}'), backgroundColor: Colors.redAccent),
+      );
+    }
+  }
+
   Future<void> _toggleAdStatus(int index, bool active) async {
     final list = List<Map<String, dynamic>>.from(_ads);
     list[index]['isActive'] = active;
@@ -118,9 +204,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   // ─── Safety Moderation Action ──────────────────────
-  void _moderateUser(BuildContext context, String name, bool isDriver) {
+  void _moderateUser(BuildContext context, String name) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final dialogBg = isDark ? const Color(0xFF1F2937) : Colors.white;
+    final flagLabel = _adminMode == AppMode.ride
+        ? "Flag for Rash Driving / Bad Behavior"
+        : _adminMode == AppMode.stay
+            ? "Flag for Overcharging / Bad Conduct"
+            : "Flag for Hygiene / Overcharging";
 
     showDialog(
       context: context,
@@ -142,10 +233,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ElevatedButton.icon(
               onPressed: () {
                 Navigator.pop(dialogCtx);
-                _flagUserAsBadmash(name, isDriver);
+                _flagUser(name);
               },
               icon: const Icon(Icons.gpp_bad, color: Colors.white),
-              label: const Text("Flag for Rash Driving / Bad Behavior"),
+              label: Text(flagLabel),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.redAccent,
                 foregroundColor: Colors.white,
@@ -156,7 +247,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             OutlinedButton.icon(
               onPressed: () {
                 Navigator.pop(dialogCtx);
-                _clearUserFlags(name, isDriver);
+                _clearFlags(name);
               },
               icon: const Icon(Icons.verified, color: Color(0xFF10B981)),
               label: const Text("Clear Flags & Mark Verified"),
@@ -172,34 +263,38 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  Future<void> _flagUserAsBadmash(String name, bool isDriver) async {
-    if (isDriver) {
-      Provider.of<RideProvider>(context, listen: false)
-          .moderateDriver(name, flagAsBad: true);
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("🛑 Flagged $name for dangerous behavior! Rating adjusted down."),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+  void _moderate(String name, bool flagAsBad) {
+    switch (_adminMode) {
+      case AppMode.ride:
+        Provider.of<RideProvider>(context, listen: false).moderateDriver(name, flagAsBad: flagAsBad);
+        break;
+      case AppMode.stay:
+        Provider.of<StayProvider>(context, listen: false).moderateStay(name, flagAsBad: flagAsBad);
+        break;
+      case AppMode.food:
+        Provider.of<FoodProvider>(context, listen: false).moderateFoodPlace(name, flagAsBad: flagAsBad);
+        break;
     }
   }
 
-  Future<void> _clearUserFlags(String name, bool isDriver) async {
-    if (isDriver) {
-      Provider.of<RideProvider>(context, listen: false)
-          .moderateDriver(name, flagAsBad: false);
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("✅ Cleared all community flags for $name. Status: Verified!"),
-          backgroundColor: const Color(0xFF10B981),
-        ),
-      );
-    }
+  void _flagUser(String name) {
+    _moderate(name, true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("🛑 Flagged $name! Rating adjusted down & community warning active."),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+  }
+
+  void _clearFlags(String name) {
+    _moderate(name, false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("✅ Cleared all community flags for $name. Status: Verified!"),
+        backgroundColor: const Color(0xFF10B981),
+      ),
+    );
   }
 
   @override
@@ -214,13 +309,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         : Colors.black.withValues(alpha: 0.08);
 
     final rideProvider = Provider.of<RideProvider>(context);
-    final requestProvider = Provider.of<PassengerRequestProvider>(context);
+    final stayProvider = Provider.of<StayProvider>(context);
+    final foodProvider = Provider.of<FoodProvider>(context);
 
     final pendingCount = _verifications.where((v) => v['isApproved'] == false).length;
     final activeAdsCount = _ads.where((a) => a['isActive'] == true).length;
 
+    final List<Color> headerGradient = _adminMode == AppMode.ride
+        ? const [Color(0xFF4F46E5), Color(0xFF6366F1)]
+        : _adminMode == AppMode.stay
+            ? const [Color(0xFF0D9488), Color(0xFF14B8A6)]
+            : const [Color(0xFFD97706), Color(0xFFF59E0B)];
+
+    final addLabel = _adminMode == AppMode.ride
+        ? "List a Ride"
+        : _adminMode == AppMode.stay
+            ? "List a Property"
+            : "List Food Service";
+
     return Scaffold(
       backgroundColor: bg,
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: "admin_add_listing",
+        backgroundColor: headerGradient.last,
+        icon: const Icon(Icons.add_business, color: Colors.white),
+        label: Text(addLabel, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => AdminAddListingScreen(mode: _adminMode)),
+        ),
+      ),
       body: NestedScrollView(
         headerSliverBuilder: (context, innerBoxIsScrolled) => [
           SliverAppBar(
@@ -232,11 +350,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               icon: Icon(Icons.arrow_back, color: primaryText),
               onPressed: () => Navigator.pop(context),
             ),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 14),
+                child: Center(child: _buildModeToggle()),
+              ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+                    colors: headerGradient,
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
@@ -265,13 +389,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
                       children: [
                         _metricCounter("Pending", "$pendingCount", Colors.orangeAccent),
-                        const SizedBox(width: 8),
-                        _metricCounter("Active Ads", "$activeAdsCount", const Color(0xFF10B981)),
-                        const SizedBox(width: 8),
-                        _metricCounter("Total Rides", "${rideProvider.rides.length}", const Color(0xFF818CF8)),
+                        _metricCounter("Ads", "$activeAdsCount", const Color(0xFF10B981)),
+                        _metricCounter("Rides", "${rideProvider.rides.length}", const Color(0xFF818CF8)),
+                        _metricCounter("Stays", "${stayProvider.stays.length}", const Color(0xFF14B8A6)),
+                        _metricCounter("Food", "${foodProvider.places.length}", const Color(0xFFF59E0B)),
                       ],
                     ),
                   ],
@@ -304,13 +430,50 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 controller: _tabController,
                 children: [
                   // Tab 1: Safety & Users Control
-                  _buildUsersTab(rideProvider, requestProvider, cardBg, border, primaryText, subText),
+                  _buildUsersTab(rideProvider, stayProvider, foodProvider, cardBg, border, primaryText, subText),
                   // Tab 2: Document Verification
                   _buildVerificationTab(cardBg, border, primaryText, subText),
                   // Tab 3: Ads & Campaigns Manager
                   _buildAdsTab(cardBg, border, primaryText, subText),
                 ],
               ),
+      ),
+    );
+  }
+
+  Widget _buildModeToggle() {
+    final icon = _adminMode == AppMode.ride
+        ? Icons.airport_shuttle
+        : _adminMode == AppMode.stay
+            ? Icons.house_rounded
+            : Icons.restaurant;
+    final label = _adminMode == AppMode.ride
+        ? "RideShare"
+        : _adminMode == AppMode.stay
+            ? "FindStay"
+            : "FindFood";
+    return GestureDetector(
+      onTap: () => setState(() {
+        // Cycle ride → stay → food → ride
+        _adminMode = AppMode.values[(_adminMode.index + 1) % AppMode.values.length];
+      }),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: Colors.white),
+            const SizedBox(width: 5),
+            Text(label, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w900)),
+            const SizedBox(width: 5),
+            const Icon(Icons.swap_horiz, size: 13, color: Colors.white70),
+          ],
+        ),
       ),
     );
   }
@@ -342,97 +505,229 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   Widget _buildUsersTab(
       RideProvider rideProvider,
-      PassengerRequestProvider reqProvider,
+      StayProvider stayProvider,
+      FoodProvider foodProvider,
       Color cardBg,
       Color border,
       Color primaryText,
       Color? subText) {
+    if (_adminMode == AppMode.stay) {
+      final stays = stayProvider.stays;
+      return ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _sectionLabel("🏠 Homestay Hosts (FindStay)", primaryText, stays.length),
+          const SizedBox(height: 10),
+          if (stays.isEmpty)
+            Text("No homestays registered yet.", style: TextStyle(color: subText, fontSize: 12)),
+          ...stays.map((s) => _moderationCard(
+                name: s.hostName,
+                subtitle: "${s.propertyType} · ${s.title} · ${s.roomsAvailable} rooms",
+                rating: s.rating,
+                accent: const Color(0xFF14B8A6),
+                emoji: "🏠",
+                cardBg: cardBg,
+                border: border,
+                primaryText: primaryText,
+                subText: subText,
+              )),
+          const SizedBox(height: 30),
+        ],
+      );
+    }
+
+    if (_adminMode == AppMode.food) {
+      final places = foodProvider.places;
+      return ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _sectionLabel("🍲 Food Hosts (FindFood)", primaryText, places.length),
+          const SizedBox(height: 10),
+          if (places.isEmpty)
+            Text("No food spots registered yet.", style: TextStyle(color: subText, fontSize: 12)),
+          ...places.map((p) => _moderationCard(
+                name: p.ownerName,
+                subtitle: "${p.foodType} · ${p.title} · ${p.cuisine}",
+                rating: p.rating,
+                accent: const Color(0xFFF59E0B),
+                emoji: "🍲",
+                cardBg: cardBg,
+                border: border,
+                primaryText: primaryText,
+                subText: subText,
+              )),
+          const SizedBox(height: 30),
+        ],
+      );
+    }
+
     final rides = rideProvider.rides;
-
-    return ListView.builder(
+    return ListView(
       padding: const EdgeInsets.all(16),
-      itemCount: rides.length,
-      itemBuilder: (context, index) {
-        final r = rides[index];
-        final isBanned = r.driverRating < 4.0;
+      children: [
+        _sectionLabel("🚗 Drivers (RideShare)", primaryText, rides.length),
+        const SizedBox(height: 10),
+        if (rides.isEmpty)
+          Text("No drivers registered yet.", style: TextStyle(color: subText, fontSize: 12)),
+        ...rides.map((r) => _moderationCard(
+              name: r.driverName,
+              subtitle: "Vehicle: ${r.vehicleName} (${r.plateNumber})",
+              rating: r.driverRating,
+              accent: const Color(0xFF6366F1),
+              emoji: "👤",
+              cardBg: cardBg,
+              border: border,
+              primaryText: primaryText,
+              subText: subText,
+            )),
+        const SizedBox(height: 30),
+      ],
+    );
+  }
 
-        return Card(
-          color: cardBg,
-          elevation: 0,
-          margin: const EdgeInsets.only(bottom: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(color: border),
+  Widget _sectionLabel(String text, Color primaryText, int count) {
+    return Row(
+      children: [
+        Text(text, style: TextStyle(color: primaryText, fontWeight: FontWeight.w900, fontSize: 14)),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(20),
           ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            leading: CircleAvatar(
-              backgroundColor: isBanned ? Colors.red.withValues(alpha: 0.1) : const Color(0xFF6366F1).withValues(alpha: 0.1),
+          child: Text("$count",
+              style: const TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold, fontSize: 11)),
+        ),
+      ],
+    );
+  }
+
+  Widget _moderationCard({
+    required String name,
+    required String subtitle,
+    required double rating,
+    required Color accent,
+    required String emoji,
+    required Color cardBg,
+    required Color border,
+    required Color primaryText,
+    required Color? subText,
+  }) {
+    final isBanned = rating < 4.0;
+
+    return Card(
+      color: cardBg,
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: border),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        leading: CircleAvatar(
+          backgroundColor: isBanned ? Colors.red.withValues(alpha: 0.1) : accent.withValues(alpha: 0.1),
+          child: Text(
+            isBanned ? "⚠️" : emoji,
+            style: const TextStyle(fontSize: 16),
+          ),
+        ),
+        title: Row(
+          children: [
+            Expanded(
               child: Text(
-                isBanned ? "⚠️" : "👤",
-                style: const TextStyle(fontSize: 16),
+                name,
+                style: TextStyle(color: primaryText, fontWeight: FontWeight.bold, fontSize: 14),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    r.driverName,
-                    style: TextStyle(color: primaryText, fontWeight: FontWeight.bold, fontSize: 14),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+            const SizedBox(width: 6),
+            const Icon(Icons.star, color: Colors.amber, size: 14),
+            const SizedBox(width: 2),
+            Text(
+              rating.toStringAsFixed(1),
+              style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12),
+            ),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 3),
+            Text(subtitle, style: TextStyle(color: subText, fontSize: 11)),
+            if (isBanned) ...[
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
                 ),
-                const SizedBox(width: 6),
-                const Icon(Icons.star, color: Colors.amber, size: 14),
-                const SizedBox(width: 2),
-                Text(
-                  r.driverRating.toStringAsFixed(1),
-                  style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12),
+                child: const Text(
+                  "🛑 FLAGGED / COMMUNITY WARNING ACTIVE",
+                  style: TextStyle(color: Colors.redAccent, fontSize: 8, fontWeight: FontWeight.bold),
                 ),
-              ],
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 3),
-                Text("Vehicle: ${r.vehicleName} (${r.plateNumber})", style: TextStyle(color: subText, fontSize: 11)),
-                if (isBanned) ...[
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      "🛑 FLAGGED / COMMUNITY WARNING ACTIVE",
-                      style: TextStyle(color: Colors.redAccent, fontSize: 8, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            trailing: IconButton(
-              icon: const Icon(Icons.security_outlined, color: Color(0xFF6366F1)),
-              onPressed: () => _moderateUser(context, r.driverName, true),
-            ),
-          ),
-        );
-      },
+              ),
+            ],
+          ],
+        ),
+        trailing: IconButton(
+          icon: Icon(Icons.security_outlined, color: accent),
+          onPressed: () => _moderateUser(context, name),
+        ),
+      ),
     );
   }
 
   Widget _buildVerificationTab(Color cardBg, Color border, Color primaryText, Color? subText) {
-    if (_verifications.isEmpty) {
-      return const Center(child: Text("No driver verifications found."));
+    // Filter to the active mode, but remember each item's original index so
+    // approval still updates the correct entry in the full list.
+    final targetType = _adminMode == AppMode.stay
+        ? 'host'
+        : _adminMode == AppMode.food
+            ? 'food'
+            : 'driver';
+    final entries = <MapEntry<int, Map<String, dynamic>>>[];
+    for (var i = 0; i < _verifications.length; i++) {
+      final t = _verifications[i]['type'] ?? 'driver'; // legacy entries = driver
+      if (t == targetType) entries.add(MapEntry(i, _verifications[i]));
+    }
+
+    if (entries.isEmpty) {
+      return Center(
+        child: Text(
+          _adminMode == AppMode.stay
+              ? "No pending homestay verifications."
+              : _adminMode == AppMode.food
+                  ? "No pending food verifications."
+                  : "No pending driver verifications.",
+          style: TextStyle(color: subText),
+        ),
+      );
     }
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _verifications.length,
-      itemBuilder: (context, index) {
-        final v = _verifications[index];
+      itemCount: entries.length,
+      itemBuilder: (context, idx) {
+        final originalIndex = entries[idx].key;
+        final v = entries[idx].value;
         final approved = v['isApproved'] == true;
+        final type = v['type'] ?? 'driver';
+        final isHost = type == 'host';
+        final isFood = type == 'food';
+        final name = isHost
+            ? (v['hostName'] ?? 'Host')
+            : isFood
+                ? (v['ownerName'] ?? 'Cook')
+                : (v['driverName'] ?? 'Driver');
+        final badgeColor = isHost
+            ? const Color(0xFF14B8A6)
+            : isFood
+                ? const Color(0xFFF59E0B)
+                : const Color(0xFF6366F1);
+        final badgeText = isHost ? "🏠 HOST" : isFood ? "🍲 FOOD" : "🚗 DRIVER";
 
         return Card(
           color: cardBg,
@@ -450,9 +745,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      v['driverName'],
-                      style: TextStyle(color: primaryText, fontWeight: FontWeight.bold, fontSize: 16),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: badgeColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              badgeText,
+                              style: TextStyle(
+                                color: badgeColor,
+                                fontSize: 8,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              name,
+                              style: TextStyle(color: primaryText, fontWeight: FontWeight.bold, fontSize: 16),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -472,15 +792,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   ],
                 ),
                 const SizedBox(height: 8),
-                Text("Vehicle: ${v['vehicleName']}", style: TextStyle(color: subText, fontSize: 12)),
-                Text("Plate Number: ${v['plateNumber']}", style: TextStyle(color: subText, fontSize: 12)),
-                Text("Phone Number: ${v['phone']}", style: TextStyle(color: subText, fontSize: 12)),
+                if (isHost) ...[
+                  Text("Property: ${v['propertyName']} (${v['propertyType']})", style: TextStyle(color: subText, fontSize: 12)),
+                  Text("Rooms: ${v['rooms']}", style: TextStyle(color: subText, fontSize: 12)),
+                  Text("Phone Number: ${v['phone']}", style: TextStyle(color: subText, fontSize: 12)),
+                ] else if (isFood) ...[
+                  Text("Place: ${v['placeName']}", style: TextStyle(color: subText, fontSize: 12)),
+                  Text("Type: ${v['foodType']}", style: TextStyle(color: subText, fontSize: 12)),
+                  Text("Phone Number: ${v['phone']}", style: TextStyle(color: subText, fontSize: 12)),
+                ] else ...[
+                  Text("Vehicle: ${v['vehicleName']}", style: TextStyle(color: subText, fontSize: 12)),
+                  Text("Plate Number: ${v['plateNumber']}", style: TextStyle(color: subText, fontSize: 12)),
+                  Text("Phone Number: ${v['phone']}", style: TextStyle(color: subText, fontSize: 12)),
+                ],
                 const SizedBox(height: 12),
                 if (!approved)
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: () => _approveDriverDoc(index),
+                      onPressed: () => _approveDriverDoc(originalIndex),
                       icon: const Icon(Icons.verified, color: Colors.white, size: 16),
                       label: const Text("Approve Verifications & Badges"),
                       style: ElevatedButton.styleFrom(
@@ -494,13 +824,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     ),
                   )
                 else
-                  const Row(
+                  Row(
                     children: [
-                      Icon(Icons.check_circle_outline, color: Colors.green, size: 16),
-                      SizedBox(width: 6),
+                      const Icon(Icons.check_circle_outline, color: Colors.green, size: 16),
+                      const SizedBox(width: 6),
                       Text(
-                        "Rider credentials actively deployed",
-                        style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
+                        isHost
+                            ? "Homestay verified & badge deployed"
+                            : isFood
+                                ? "Food spot verified & badge deployed"
+                                : "Rider credentials actively deployed",
+                        style: const TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
@@ -574,11 +908,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         ],
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 4),
                     Switch(
                       value: active,
                       activeThumbColor: const Color(0xFF10B981),
                       onChanged: (val) => _toggleAdStatus(index, val),
+                    ),
+                    IconButton(
+                      tooltip: 'Delete ad',
+                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                      onPressed: () => _deleteAd(index),
                     ),
                   ],
                 ),
@@ -612,6 +951,30 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 28),
+          const Divider(),
+          const SizedBox(height: 12),
+          Text("⚠️ Danger Zone", style: TextStyle(color: primaryText, fontWeight: FontWeight.bold, fontSize: 15)),
+          const SizedBox(height: 6),
+          Text(
+            "Before going live, remove all sample/demo data. Your real listings, reviews & ads are kept; demo data won't reappear.",
+            style: TextStyle(color: subText, fontSize: 11.5, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _clearDemoData,
+              icon: const Icon(Icons.cleaning_services, color: Colors.redAccent, size: 18),
+              label: const Text("🧹 Clear Demo Data (keep real)",
+                  style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w800)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Colors.redAccent),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
             ),
           ),

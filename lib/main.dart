@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'services/firebase_service.dart';
+import 'services/verified_phones_service.dart';
 import 'models/ride_model.dart';
 import 'screens/passenger_screen.dart';
 import 'screens/driver_screen.dart';
@@ -10,17 +12,27 @@ import 'screens/profile_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/sos_screen.dart';
+import 'screens/food_finder_screen.dart';
+import 'screens/host_food_screen.dart';
 import 'services/local_storage_service.dart';
 import 'models/passenger_request_model.dart';
+import 'models/stay_model.dart';
+import 'models/food_model.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await FirebaseService.initialize();
+  await LocalStorageService.loadFlags(); // demo-seeding on/off
+  VerifiedPhonesService.init(); // sync admin-verified phone numbers
+  // Pull any cloud reviews into the local cache (fire-and-forget, no-op offline).
+  LocalStorageService.syncReviewsFromCloud();
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (context) => RideProvider()),
         ChangeNotifierProvider(create: (context) => PassengerRequestProvider()),
+        ChangeNotifierProvider(create: (context) => StayProvider()),
+        ChangeNotifierProvider(create: (context) => FoodProvider()),
       ],
       child: const MyApp(),
     ),
@@ -36,7 +48,7 @@ class MyApp extends StatelessWidget {
     final isDarkMode = rideProvider.isDarkMode;
 
     return MaterialApp(
-      title: 'RideShare to Spiti',
+      title: 'Spiti Setu',
       debugShowCheckedModeBanner: false,
       themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
       theme: ThemeData.light().copyWith(
@@ -77,12 +89,86 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   void initState() {
     super.initState();
     _loadUnreadCount();
+    _checkMyActiveRequests();
   }
 
   Future<void> _loadUnreadCount() async {
     final notifs = await LocalStorageService.getNotifications();
     final count = notifs.where((n) => n['read'] == false).length;
     if (mounted) setState(() => _unreadCount = count);
+  }
+
+  /// On app open, if the user has active broadcast requests, insist they update
+  /// status — keep looking, or remove (so providers don't call them needlessly).
+  Future<void> _checkMyActiveRequests() async {
+    await Future.delayed(const Duration(milliseconds: 1800)); // let Firestore load
+    if (!mounted) return;
+    final profile = await LocalStorageService.getProfile();
+    final phone = profile.phone;
+    if (phone.isEmpty || !mounted) return;
+
+    final stayP = context.read<StayProvider>();
+    final foodP = context.read<FoodProvider>();
+    final passP = context.read<PassengerRequestProvider>();
+    final myStay = stayP.stayRequests.where((r) => r.phone == phone).toList();
+    final myFood = foodP.requests.where((r) => r.phone == phone).toList();
+    final myRide = passP.requests.where((r) => r.phone == phone).toList();
+    if (myStay.isEmpty && myFood.isEmpty && myRide.isEmpty) return;
+
+    final lines = <String>[
+      ...myStay.map((r) => '🏠 Room in ${r.locationLooking}'),
+      ...myFood.map((r) => '🍲 Food in ${r.locationLooking}'),
+      ...myRide.map((r) => '🚗 Ride ${r.from} → ${r.to}'),
+    ];
+
+    if (!mounted) return;
+    final keep = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Update your status'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('You still have active request(s):'),
+            const SizedBox(height: 8),
+            ...lines.map((l) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(l, style: const TextStyle(fontWeight: FontWeight.w600)),
+                )),
+            const SizedBox(height: 10),
+            const Text('Found what you needed? Remove them so hosts/drivers don\'t call you for nothing.',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Still looking')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+            child: const Text('✓ Got it — remove', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (keep == false) {
+      final fb = FirebaseService();
+      for (final r in myStay) {
+        await fb.deleteDoc('stay_requests', r.id);
+      }
+      for (final r in myFood) {
+        await fb.deleteDoc('food_requests', r.id);
+      }
+      for (final r in myRide) {
+        await fb.deleteDoc('passenger_requests', r.id);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✓ Your requests cleared. Thanks for keeping Spiti Setu fresh!'), backgroundColor: Color(0xFF10B981)),
+        );
+      }
+    }
   }
 
   void _openNotifications() async {
@@ -95,22 +181,43 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> screens = [
-      const PassengerScreen(),
-      DriverScreen(
-        onRegistrationSuccess: () {
-          setState(() {
-            _currentTab = 0;
-          });
-        },
-      ),
-      const MyTripsScreen(),
-      const ProfileScreen(),
-    ];
-
     final isMobile = MediaQuery.of(context).size.width < 600;
     final rideProvider = Provider.of<RideProvider>(context);
+    final appMode = rideProvider.appMode;
     final isDark = rideProvider.isDarkMode;
+
+    // Per-mode styling (ride = indigo, stay = teal, food = amber)
+    final Color modeColor = appMode == AppMode.ride
+        ? const Color(0xFF6366F1)
+        : appMode == AppMode.stay
+            ? const Color(0xFF10B981)
+            : const Color(0xFFF59E0B);
+    final IconData modeIcon = appMode == AppMode.ride
+        ? Icons.airport_shuttle
+        : appMode == AppMode.stay
+            ? Icons.house_rounded
+            : Icons.restaurant;
+    final String modeLabel = appMode == AppMode.ride
+        ? "RideShare"
+        : appMode == AppMode.stay
+            ? "FindStay"
+            : "FindFood";
+
+    final List<Widget> screens = appMode == AppMode.food
+        ? [
+            const FoodFinderScreen(),
+            HostFoodScreen(onRegistered: () => setState(() => _currentTab = 0)),
+            const MyTripsScreen(),
+            const ProfileScreen(),
+          ]
+        : [
+            const PassengerScreen(),
+            DriverScreen(
+              onRegistrationSuccess: () => setState(() => _currentTab = 0),
+            ),
+            const MyTripsScreen(),
+            const ProfileScreen(),
+          ];
     final bgColor = isDark ? const Color(0xFF090D16) : const Color(0xFFF8FAFC);
     final onSurface = isDark ? Colors.white : Colors.black87;
 
@@ -125,7 +232,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             const SizedBox(width: 6),
             Flexible(
               child: Text(
-                "RideShare Spiti",
+                "Spiti Setu",
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.outfit(
                   fontWeight: FontWeight.w800,
@@ -137,6 +244,41 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           ],
         ),
         actions: [
+          // Mode Toggle Switch
+          GestureDetector(
+            onTap: () {
+              rideProvider.toggleAppMode();
+              HapticFeedback.lightImpact();
+            },
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: modeColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: modeColor.withValues(alpha: 0.3),
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(modeIcon, size: 14, color: modeColor),
+                  const SizedBox(width: 4),
+                  Text(
+                    modeLabel,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: modeColor,
+                    ),
+                  ),
+                  const SizedBox(width: 3),
+                  Icon(Icons.swap_horiz, size: 12, color: modeColor.withValues(alpha: 0.7)),
+                ],
+              ),
+            ),
+          ),
           // SOS button
           IconButton(
             onPressed: () => Navigator.push(
@@ -237,29 +379,65 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           onTap: (index) => setState(() => _currentTab = index),
           backgroundColor:
               isDark ? const Color(0xFF111827).withValues(alpha: 0.95) : Colors.white,
-          selectedItemColor: const Color(0xFF6366F1),
+          selectedItemColor: modeColor,
           unselectedItemColor: Colors.grey,
           selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
           type: BottomNavigationBarType.fixed,
-          items: const [
+          items: [
             BottomNavigationBarItem(
-              icon: Icon(Icons.airport_shuttle_outlined),
-              activeIcon: Icon(Icons.airport_shuttle),
-              label: 'Book Seats',
+              icon: Icon(appMode == AppMode.ride
+                  ? Icons.airport_shuttle_outlined
+                  : appMode == AppMode.stay
+                      ? Icons.home_work_outlined
+                      : Icons.restaurant_outlined),
+              activeIcon: Icon(appMode == AppMode.ride
+                  ? Icons.airport_shuttle
+                  : appMode == AppMode.stay
+                      ? Icons.home_work
+                      : Icons.restaurant),
+              label: appMode == AppMode.ride
+                  ? 'Book Seats'
+                  : appMode == AppMode.stay
+                      ? 'Find Stays'
+                      : 'Find Food',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.drive_eta_outlined),
-              activeIcon: Icon(Icons.drive_eta),
-              label: 'Drive',
+              icon: Icon(appMode == AppMode.ride
+                  ? Icons.drive_eta_outlined
+                  : appMode == AppMode.stay
+                      ? Icons.domain_add_outlined
+                      : Icons.soup_kitchen_outlined),
+              activeIcon: Icon(appMode == AppMode.ride
+                  ? Icons.drive_eta
+                  : appMode == AppMode.stay
+                      ? Icons.domain_add
+                      : Icons.soup_kitchen),
+              label: appMode == AppMode.ride
+                  ? 'Drive'
+                  : appMode == AppMode.stay
+                      ? 'Host Stay'
+                      : 'Host Food',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.confirmation_number_outlined),
-              activeIcon: Icon(Icons.confirmation_number),
-              label: 'My Trips',
+              icon: Icon(appMode == AppMode.ride
+                  ? Icons.confirmation_number_outlined
+                  : appMode == AppMode.stay
+                      ? Icons.hotel_outlined
+                      : Icons.bookmark_border),
+              activeIcon: Icon(appMode == AppMode.ride
+                  ? Icons.confirmation_number
+                  : appMode == AppMode.stay
+                      ? Icons.hotel
+                      : Icons.bookmark),
+              label: appMode == AppMode.ride
+                  ? 'My Trips'
+                  : appMode == AppMode.stay
+                      ? 'My Bookings'
+                      : 'My Orders',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline),
-              activeIcon: Icon(Icons.person),
+              icon: const Icon(Icons.person_outline),
+              activeIcon: const Icon(Icons.person),
               label: 'Profile',
             ),
           ],

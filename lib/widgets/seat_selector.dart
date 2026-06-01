@@ -431,9 +431,15 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
                     onPressed: _selectedSeats.isEmpty
                         ? null
                         : () async {
-                            // 1. Update ride in provider / Firebase
-                            Provider.of<RideProvider>(context, listen: false)
-                                .bookSeats(widget.ride.id, List.from(_selectedSeats));
+                            // 1. Update ride in provider / Firebase (record who booked)
+                            final rideProvider = Provider.of<RideProvider>(context, listen: false);
+                            final profile = await LocalStorageService.getProfile();
+                            rideProvider.bookSeats(
+                              widget.ride.id,
+                              List.from(_selectedSeats),
+                              name: profile.name,
+                              phone: profile.phone,
+                            );
 
                             // 2. Build BookedTrip and save locally
                             final trip = BookedTrip(

@@ -1,6 +1,20 @@
 import 'package:flutter/material.dart';
 import '../services/firebase_service.dart';
+import '../services/local_storage_service.dart';
 import 'dart:math';
+
+/// Parse a date stored in Firestore that may be a String (ISO), a Firestore
+/// Timestamp (has toDate()), or epoch millis — without importing cloud_firestore.
+DateTime parseFlexibleDate(dynamic v) {
+  if (v == null) return DateTime.now();
+  if (v is String) return DateTime.tryParse(v) ?? DateTime.now();
+  if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+  try {
+    return v.toDate() as DateTime; // Firestore Timestamp
+  } catch (_) {
+    return DateTime.now();
+  }
+}
 
 // ─────────────────────────────────────────────────────────
 // Model
@@ -58,9 +72,7 @@ class PassengerRequest {
         date: map['date'] ?? '',
         seatsNeeded: map['seatsNeeded'] ?? 1,
         note: map['note'] ?? '',
-        createdAt: map['createdAt'] != null
-            ? DateTime.tryParse(map['createdAt']) ?? DateTime.now()
-            : DateTime.now(),
+        createdAt: parseFlexibleDate(map['createdAt']),
         isActive: map['isActive'] ?? true,
         passengerRating: (map['passengerRating'] as num?)?.toDouble() ?? 5.0,
         safetyFlags: List<String>.from(map['safetyFlags'] ?? []),
@@ -145,21 +157,19 @@ class PassengerRequestProvider extends ChangeNotifier {
 
   void _initSync() {
     if (FirebaseService.isInitialized) {
+      // Live data only — never auto-seed; in launch mode hide demo-id records.
       _firebaseService.streamPassengerRequests().listen((fresh) {
-        if (fresh.isEmpty) {
-          for (var r in _mockRequests) {
-            _firebaseService.addPassengerRequest(r);
-          }
-        } else {
-          _requests = fresh.map((item) {
-            final map = item as Map<String, dynamic>;
-            final id = map['id'] as String;
-            return PassengerRequest.fromMap(id, map);
-          }).toList();
-          notifyListeners();
-        }
+        final mapped = fresh.map((item) {
+          final map = item as Map<String, dynamic>;
+          final id = map['id'] as String;
+          return PassengerRequest.fromMap(id, map);
+        }).toList();
+        _requests = LocalStorageService.demoSeedingDisabled
+            ? mapped.where((r) => r.id.contains('_')).toList()
+            : mapped;
+        notifyListeners();
       });
-    } else {
+    } else if (!LocalStorageService.demoSeedingDisabled) {
       _requests = List.from(_mockRequests);
     }
   }

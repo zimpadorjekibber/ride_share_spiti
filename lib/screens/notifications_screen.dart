@@ -23,8 +23,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final existing = await LocalStorageService.getNotifications();
     if (existing.isEmpty) {
       await LocalStorageService.addNotification(
-          '🎫 Welcome to RideShare Spiti!',
-          'Find and book rides to Spiti Valley easily.');
+          '🎫 Welcome to Spiti Setu!',
+          'Stays, food & rides across Spiti Valley — all in one place.');
       await LocalStorageService.addNotification(
           '🗺️ Tip: Use the map to track live driver location',
           'Tap "Track Live" on any ride card to see the driver on the map.');

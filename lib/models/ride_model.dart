@@ -1,7 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/firebase_service.dart';
+import '../services/local_storage_service.dart';
+import '../services/spiti_routes.dart';
 
 enum VehicleType { taxi, tempo, private, suv, bus, bike }
+
+/// Who holds a specific seat. Recorded when a passenger books online or when
+/// the driver blocks a seat manually (phone/walk-in booking).
+class SeatBooking {
+  final String seatId; // "S1", "S2"…
+  final String name; // passenger name
+  final String phone; // passenger contact
+  final bool byDriver; // true = driver blocked it manually
+  SeatBooking({required this.seatId, this.name = '', this.phone = '', this.byDriver = false});
+
+  Map<String, dynamic> toMap() =>
+      {'seatId': seatId, 'name': name, 'phone': phone, 'byDriver': byDriver};
+  factory SeatBooking.fromMap(Map<String, dynamic> m) => SeatBooking(
+        seatId: m['seatId'] ?? '',
+        name: m['name'] ?? '',
+        phone: m['phone'] ?? '',
+        byDriver: m['byDriver'] ?? false,
+      );
+}
 
 class Ride {
   final String id;
@@ -21,6 +43,8 @@ class Ride {
   double lng;
   final double driverRating;
   final List<String> safetyFlags;
+  final String photoPath; // local file path of driver-uploaded vehicle photo
+  final List<SeatBooking> seatBookings; // who holds each booked seat
 
   Ride({
     required this.id,
@@ -40,17 +64,89 @@ class Ride {
     required this.lng,
     this.driverRating = 5.0,
     this.safetyFlags = const [],
+    this.photoPath = '',
+    this.seatBookings = const [],
   });
 
   int get availableSeats => totalSeats - bookedSeats.length;
+  bool get isFull => bookedSeats.length >= totalSeats;
+
+  /// Booking details for a given seat id, if recorded.
+  SeatBooking? bookingFor(String seatId) {
+    for (final b in seatBookings) {
+      if (b.seatId == seatId) return b;
+    }
+    return null;
+  }
+
+  Ride copyWith({
+    int? totalSeats,
+    List<String>? bookedSeats,
+    double? price,
+    String? from,
+    String? to,
+    String? date,
+    String? time,
+    double? driverRating,
+    List<String>? safetyFlags,
+    List<SeatBooking>? seatBookings,
+  }) =>
+      Ride(
+        id: id,
+        driverName: driverName,
+        phone: phone,
+        vehicleType: vehicleType,
+        vehicleName: vehicleName,
+        plateNumber: plateNumber,
+        totalSeats: totalSeats ?? this.totalSeats,
+        bookedSeats: bookedSeats ?? this.bookedSeats,
+        from: from ?? this.from,
+        to: to ?? this.to,
+        date: date ?? this.date,
+        time: time ?? this.time,
+        price: price ?? this.price,
+        lat: lat,
+        lng: lng,
+        driverRating: driverRating ?? this.driverRating,
+        safetyFlags: safetyFlags ?? this.safetyFlags,
+        photoPath: photoPath,
+        seatBookings: seatBookings ?? this.seatBookings,
+      );
 }
 
+// Mode order = toggle cycle order: Stay → Food → Ride → Stay
+enum AppMode { stay, food, ride }
+
 class RideProvider extends ChangeNotifier {
-  bool _isDarkMode = true;
+  static const String _themeKey = 'dark_mode';
+
+  bool _isDarkMode = false; // default: light mode
   bool get isDarkMode => _isDarkMode;
 
-  void toggleTheme() {
+  Future<void> _loadTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    _isDarkMode = prefs.getBool(_themeKey) ?? false; // light unless user chose dark
+    notifyListeners();
+  }
+
+  void toggleTheme() async {
     _isDarkMode = !_isDarkMode;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_themeKey, _isDarkMode); // remember choice across restarts
+  }
+
+  AppMode _appMode = AppMode.stay; // app opens in Stay by default
+  AppMode get appMode => _appMode;
+
+  void toggleAppMode() {
+    // Cycle: ride → stay → food → ride
+    _appMode = AppMode.values[(_appMode.index + 1) % AppMode.values.length];
+    notifyListeners();
+  }
+
+  void setAppMode(AppMode mode) {
+    _appMode = mode;
     notifyListeners();
   }
 
@@ -188,24 +284,22 @@ class RideProvider extends ChangeNotifier {
   ];
 
   RideProvider() {
+    _loadTheme();
     _initFirestoreSync();
   }
 
   void _initFirestoreSync() {
     if (FirebaseService.isInitialized) {
-      _firebaseService.streamRides().listen((freshRides) async {
-        if (freshRides.isEmpty) {
-          // Pre-seed Firestore if collection is empty
-          for (var ride in _mockRides) {
-            await _firebaseService.addRide(ride);
-          }
-        } else {
-          _rides = freshRides;
-          notifyListeners();
-        }
+      _firebaseService.streamRides().listen((freshRides) {
+        // Live data only — never auto-seed; and in launch mode hide any demo-id
+        // (no-underscore) records that a stale client may have re-seeded.
+        _rides = LocalStorageService.demoSeedingDisabled
+            ? freshRides.where((r) => r.id.contains('_')).toList()
+            : freshRides;
+        notifyListeners();
       });
-    } else {
-      // Offline / Fallback Mock Mode
+    } else if (!LocalStorageService.demoSeedingDisabled) {
+      // Offline demo fallback (only when explicitly enabled).
       _rides = List.from(_mockRides);
     }
   }
@@ -214,17 +308,26 @@ class RideProvider extends ChangeNotifier {
   String _searchTo = "";
   String _filterVehicleType = "all";
 
+  /// Unfiltered list — used by the driver's own "My Rides" dashboard so that
+  /// search filters on the Find Rides screen never hide their listings.
+  List<Ride> get allRides => _rides;
+
   List<Ride> get rides {
+    final from = _searchFrom.trim();
+    final to = _searchTo.trim();
     return _rides.where((ride) {
-      final matchesFrom = ride.from.toLowerCase().contains(_searchFrom.toLowerCase());
-      final matchesTo = ride.to.toLowerCase().contains(_searchTo.toLowerCase());
-      
-      bool matchesType = true;
-      if (_filterVehicleType != "all") {
-        matchesType = ride.vehicleType.name == _filterVehicleType;
+      if (_filterVehicleType != "all" && ride.vehicleType.name != _filterVehicleType) {
+        return false;
       }
-      
-      return matchesFrom && matchesTo && matchesType;
+      if (from.isEmpty && to.isEmpty) return true;
+
+      // 1) Direct text match on the ride's own from/to.
+      final subFrom = from.isEmpty || ride.from.toLowerCase().contains(from.toLowerCase());
+      final subTo = to.isEmpty || ride.to.toLowerCase().contains(to.toLowerCase());
+      if (subFrom && subTo) return true;
+
+      // 2) "Along the way" — ride passes near & in-between the seeker's points.
+      return SpitiRoutes.rideServesTrip(ride.from, ride.to, from, to);
     }).toList();
   }
 
@@ -251,20 +354,68 @@ class RideProvider extends ChangeNotifier {
     }
   }
 
-  void bookSeats(String rideId, List<String> seatIds) async {
+  /// Update an existing ride (driver editing / managing their own ride).
+  void updateRide(Ride updated) async {
+    if (FirebaseService.isInitialized) {
+      await _firebaseService.addRide(updated); // same id → overwrite
+    } else {
+      final i = _rides.indexWhere((r) => r.id == updated.id);
+      if (i >= 0) {
+        _rides[i] = updated;
+      } else {
+        _rides.insert(0, updated);
+      }
+      notifyListeners();
+    }
+  }
+
+  void deleteRide(String id) async {
+    if (FirebaseService.isInitialized) {
+      await _firebaseService.deleteDoc('rides', id);
+    } else {
+      _rides.removeWhere((r) => r.id == id);
+      notifyListeners();
+    }
+  }
+
+  void bookSeats(String rideId, List<String> seatIds, {String name = '', String phone = ''}) async {
     if (FirebaseService.isInitialized) {
       try {
-        await _firebaseService.bookSeats(rideId, seatIds);
+        await _firebaseService.bookSeats(rideId, seatIds, name: name, phone: phone);
       } catch (e) {
         debugPrint("Booking error: $e");
       }
     } else {
-      final rideIndex = _rides.indexWhere((r) => r.id == rideId);
-      if (rideIndex != -1) {
-        _rides[rideIndex].bookedSeats.addAll(seatIds);
+      final i = _rides.indexWhere((r) => r.id == rideId);
+      if (i != -1) {
+        final r = _rides[i];
+        _rides[i] = r.copyWith(
+          bookedSeats: [...r.bookedSeats, ...seatIds],
+          seatBookings: [
+            ...r.seatBookings,
+            ...seatIds.map((s) => SeatBooking(seatId: s, name: name, phone: phone)),
+          ],
+        );
         notifyListeners();
       }
     }
+  }
+
+  /// Driver manually blocks a seat (e.g. a phone / walk-in booking).
+  void setSeatBooked(Ride ride, String seatId, {String name = '', String phone = '', bool byDriver = true}) {
+    if (ride.bookedSeats.contains(seatId)) return;
+    updateRide(ride.copyWith(
+      bookedSeats: [...ride.bookedSeats, seatId],
+      seatBookings: [...ride.seatBookings, SeatBooking(seatId: seatId, name: name, phone: phone, byDriver: byDriver)],
+    ));
+  }
+
+  /// Driver frees a seat (confirmed action — never an accidental tap).
+  void freeSeat(Ride ride, String seatId) {
+    updateRide(ride.copyWith(
+      bookedSeats: ride.bookedSeats.where((s) => s != seatId).toList(),
+      seatBookings: ride.seatBookings.where((b) => b.seatId != seatId).toList(),
+    ));
   }
 
   void moderateDriver(String driverName, {required bool flagAsBad}) {

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/booked_trip_model.dart';
 import '../services/local_storage_service.dart';
+import '../models/ride_model.dart';
 
 class MyTripsScreen extends StatefulWidget {
   const MyTripsScreen({super.key});
@@ -76,6 +78,11 @@ class _MyTripsScreenState extends State<MyTripsScreen>
         .where((t) => t.status == 'completed' || t.status == 'cancelled')
         .toList();
 
+    final rideProvider = Provider.of<RideProvider>(context);
+    final appMode = rideProvider.appMode;
+    // Both Stay & Food use the simple "booked via direct call" placeholder.
+    final isStayMode = appMode != AppMode.ride;
+
     return Scaffold(
       backgroundColor: bg,
       appBar: AppBar(
@@ -83,34 +90,42 @@ class _MyTripsScreenState extends State<MyTripsScreen>
         elevation: 0,
         automaticallyImplyLeading: false,
         title: Text(
-          'My Trips',
+          appMode == AppMode.ride
+              ? 'My Trips'
+              : appMode == AppMode.stay
+                  ? 'My Bookings'
+                  : 'My Orders',
           style: TextStyle(
               color: primaryText, fontWeight: FontWeight.w800, fontSize: 22),
         ),
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: const Color(0xFF6366F1),
-          labelColor: const Color(0xFF6366F1),
-          unselectedLabelColor: Colors.grey,
-          labelStyle:
-              const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-          tabs: [
-            Tab(text: 'Upcoming (${upcoming.length})'),
-            Tab(text: 'Past (${past.length})'),
-          ],
-        ),
+        bottom: isStayMode
+            ? null
+            : TabBar(
+                controller: _tabController,
+                indicatorColor: const Color(0xFF6366F1),
+                labelColor: const Color(0xFF6366F1),
+                unselectedLabelColor: Colors.grey,
+                labelStyle:
+                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                tabs: [
+                  Tab(text: 'Upcoming (${upcoming.length})'),
+                  Tab(text: 'Past (${past.length})'),
+                ],
+              ),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _TripList(
-                  trips: upcoming,
-                  onCancel: _cancelTrip,
-                  onReviewCompleted: _loadTrips,
-                  emptyMessage: 'No upcoming trips.\nBook a ride now!',
-                  emptyIcon: Icons.luggage_outlined,
+          : isStayMode
+              ? _buildCozyStaysPlaceholder(isDark, primaryText)
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _TripList(
+                      trips: upcoming,
+                      onCancel: _cancelTrip,
+                      onReviewCompleted: _loadTrips,
+                      emptyMessage: 'No upcoming trips.\nBook a ride now!',
+                      emptyIcon: Icons.luggage_outlined,
                 ),
                 _TripList(
                   trips: past,
@@ -121,6 +136,71 @@ class _MyTripsScreenState extends State<MyTripsScreen>
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildCozyStaysPlaceholder(bool isDark, Color primaryText) {
+    final subText = isDark ? Colors.grey[400] : Colors.grey[600];
+    final cardBg = isDark ? const Color(0xFF111827) : Colors.white;
+    final border = isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(height: 40),
+          const Icon(Icons.villa_outlined, size: 84, color: Color(0xFF0D9488)),
+          const SizedBox(height: 16),
+          Text(
+            "Spiti Booking Hub",
+            textAlign: TextAlign.center,
+            style: TextStyle(color: primaryText, fontWeight: FontWeight.w900, fontSize: 18),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "Stays & meals are arranged directly via one-click phone calls with local hosts and cooks. This keeps it fast and immune to internet cuts in high valleys!",
+            textAlign: TextAlign.center,
+            style: TextStyle(color: subText, fontSize: 12, height: 1.5),
+          ),
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "🏔️ Homestay Booking Guide:",
+                  style: TextStyle(color: primaryText, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                _guideItem("1. Choose Homestay", "Browse the FindStay tab, review rooms, budget, Bukhari, and Geyser filters."),
+                const SizedBox(height: 10),
+                _guideItem("2. Tap 'Contact Host'", "Directly call the Spitian family, confirm dates, and ask for fresh local food."),
+                const SizedBox(height: 10),
+                _guideItem("3. Broadcast Needs", "Can't find a room? Use 'FindStay Seeker' button to let hosts find and call you!"),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _guideItem(String title, String desc) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF0D9488))),
+        const SizedBox(height: 2),
+        Text(desc, style: const TextStyle(fontSize: 10.5, color: Colors.grey)),
+      ],
     );
   }
 }
@@ -744,4 +824,5 @@ class _TripCard extends StatelessWidget {
       ],
     );
   }
+
 }

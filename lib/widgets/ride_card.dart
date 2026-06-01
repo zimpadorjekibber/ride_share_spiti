@@ -1,20 +1,26 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/ride_model.dart';
 import '../screens/live_tracking_screen.dart';
 import '../screens/ride_detail_screen.dart';
 import '../services/proximity_service.dart';
+import '../services/verified_phones_service.dart';
 import 'seat_selector.dart';
+import 'review_sheet.dart';
+import 'verified_badge.dart';
 
 class RideCard extends StatelessWidget {
   final Ride ride;
   final double? userLat;
   final double? userLng;
+  final String? matchNote; // e.g. "Passes near your route" for along-the-way matches
 
   const RideCard({
     super.key,
     required this.ride,
     this.userLat,
     this.userLng,
+    this.matchNote,
   });
 
   String getVehicleIcon(VehicleType type) {
@@ -96,23 +102,58 @@ class RideCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // "Along the way" hint for corridor / nearby matches
+          if (matchNote != null) ...[
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.alt_route, size: 14, color: Color(0xFFB45309)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(matchNote!,
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFFB45309))),
+                  ),
+                ],
+              ),
+            ),
+          ],
           // Header Row
           Row(
             children: [
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: headerBgColor,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: cardBorderColor),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  getVehicleIcon(ride.vehicleType),
-                  style: const TextStyle(fontSize: 24),
-                ),
-              ),
+              (ride.photoPath.startsWith('http') || (ride.photoPath.isNotEmpty && File(ride.photoPath).existsSync()))
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: ride.photoPath.startsWith('http')
+                          ? Image.network(ride.photoPath, width: 50, height: 50, fit: BoxFit.cover)
+                          : Image.file(
+                              File(ride.photoPath),
+                              width: 50,
+                              height: 50,
+                              fit: BoxFit.cover,
+                            ),
+                    )
+                  : Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: headerBgColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: cardBorderColor),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        getVehicleIcon(ride.vehicleType),
+                        style: const TextStyle(fontSize: 24),
+                      ),
+                    ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -142,6 +183,10 @@ class RideCard extends StatelessWidget {
                             color: Colors.amber,
                           ),
                         ),
+                        if (VerifiedPhonesService.isVerified(ride.phone)) ...[
+                          const SizedBox(width: 6),
+                          const VerifiedBadge(),
+                        ],
                       ],
                     ),
                      const SizedBox(height: 4),
@@ -318,7 +363,40 @@ class RideCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
+          // Reviews entry point (passengers review the driver)
+          InkWell(
+            onTap: () => showReviewsSheet(
+              context,
+              category: 'ride',
+              subjectId: ride.phone,
+              subjectName: ride.driverName,
+              writeRole: 'Passenger',
+              accent: const Color(0xFF6366F1),
+            ),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.reviews_outlined, size: 14, color: Color(0xFF818CF8)),
+                  const SizedBox(width: 6),
+                  Text(
+                    "Read & write driver reviews",
+                    style: TextStyle(
+                      color: const Color(0xFF818CF8),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      decoration: TextDecoration.underline,
+                      decorationColor: const Color(0xFF818CF8).withValues(alpha: 0.4),
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, size: 16, color: Color(0xFF818CF8)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           // Actions
           Wrap(
             alignment: WrapAlignment.spaceBetween,

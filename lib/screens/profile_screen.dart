@@ -1,7 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/booked_trip_model.dart';
 import '../services/local_storage_service.dart';
+import '../services/storage_service.dart';
 import 'admin_dashboard_screen.dart';
+import 'verification_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -66,6 +71,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 final entered = pinController.text.trim();
                 Navigator.pop(dialogCtx);
                 if (entered == "9999") {
+                  // Remember admin so the portal stays available for them.
+                  _profile.isAdmin = true;
+                  LocalStorageService.saveProfile(_profile);
+                  setState(() {});
                   _openAdminPanelDirectly();
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -191,52 +200,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Column(
                 children: [
                   // Avatar
-                  Stack(
-                    children: [
-                      Container(
-                        width: 90,
-                        height: 90,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFF818CF8)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                  GestureDetector(
+                    onTap: _pickAvatar,
+                    child: Stack(
+                      children: [
+                        Container(
+                          width: 90,
+                          height: 90,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF6366F1), Color(0xFF818CF8)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF6366F1).withValues(alpha: 0.35),
+                                blurRadius: 20,
+                                spreadRadius: 2,
+                              )
+                            ],
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF6366F1).withValues(alpha: 0.35),
-                              blurRadius: 20,
-                              spreadRadius: 2,
-                            )
-                          ],
+                          alignment: Alignment.center,
+                          clipBehavior: Clip.antiAlias,
+                          child: _avatarContent(),
                         ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          _initials,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 32,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                      if (_editing)
                         Positioned(
                           bottom: 0,
                           right: 0,
                           child: Container(
-                            width: 26,
-                            height: 26,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF10B981),
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981),
                               shape: BoxShape.circle,
+                              border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2),
                             ),
-                            child: const Icon(Icons.camera_alt,
-                                color: Colors.white, size: 14),
+                            child: const Icon(Icons.camera_alt, color: Colors.white, size: 14),
                           ),
                         ),
-                    ],
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 16),
 
@@ -301,7 +306,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               });
                               if (_adminBadgeTaps >= 5) {
                                 _adminBadgeTaps = 0;
-                                _openAdminPanelDirectly();
+                                _promptAdminPIN();
                               } else {
                                 ScaffoldMessenger.of(context).clearSnackBars();
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -375,10 +380,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: Column(
                 children: [
-                  _menuItem(Icons.admin_panel_settings_outlined, 'System Admin Portal', 'Access core moderator controls',
-                      primaryText, subText, onTap: () => _promptAdminPIN()),
-                  Divider(height: 1, color: border),
-                  _menuItem(Icons.info_outline, 'About App', 'RideShare Spiti v1.0',
+                  // Admin portal — visible only to a verified admin (after PIN).
+                  if (_profile.isAdmin) ...[
+                    _menuItem(Icons.admin_panel_settings_outlined, 'System Admin Portal', 'Access core moderator controls',
+                        primaryText, subText, onTap: () => _openAdminPanelDirectly()),
+                    Divider(height: 1, color: border),
+                  ],
+                  _menuItem(Icons.info_outline, 'About App', 'Spiti Setu v1.0 · Stays · Food · Rides',
                       primaryText, subText),
                   Divider(height: 1, color: border),
                   _menuItem(Icons.map_outlined, 'Region', 'Spiti Valley, Himachal Pradesh',
@@ -443,10 +451,127 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
 
+            const SizedBox(height: 20),
+
+            // ── Log out ──
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _logout,
+                icon: const Icon(Icons.logout, color: Color(0xFFEF4444), size: 18),
+                label: const Text('Log out',
+                    style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.w700)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Color(0xFFEF4444)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+
             const SizedBox(height: 30),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _avatarContent() {
+    final p = _profile.avatarPath;
+    if (p.isNotEmpty) {
+      if (p.startsWith('http')) {
+        return Image.network(p, width: 90, height: 90, fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => _avatarInitials());
+      }
+      if (File(p).existsSync()) {
+        return Image.file(File(p), width: 90, height: 90, fit: BoxFit.cover);
+      }
+    }
+    return _avatarInitials();
+  }
+
+  Widget _avatarInitials() => Text(
+        _initials,
+        style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w800),
+      );
+
+  Future<void> _pickAvatar() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.photo_camera, color: Color(0xFF6366F1)),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library, color: Color(0xFF6366F1)),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            if (_profile.avatarPath.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                title: const Text('Remove photo', style: TextStyle(color: Colors.redAccent)),
+                onTap: () => Navigator.pop(ctx, null),
+                trailing: const Text('remove', style: TextStyle(color: Colors.redAccent, fontSize: 11)),
+              ),
+          ],
+        ),
+      ),
+    );
+    // (null with existing photo = remove; null with no existing = cancelled)
+    if (source == null) return;
+
+    try {
+      final file = await ImagePicker().pickImage(source: source, maxWidth: 800, imageQuality: 80);
+      if (file == null) return;
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      final url = await StorageService.uploadPhoto(file.path, 'avatars');
+      _profile.avatarPath = url;
+      await LocalStorageService.saveProfile(_profile);
+      if (mounted) {
+        setState(() {});
+        messenger.showSnackBar(const SnackBar(content: Text('Profile photo updated ✅')));
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _logout() async {
+    final navigator = Navigator.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text('You will need to verify your phone & email again to continue.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
+            child: const Text('Log out', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+    await LocalStorageService.saveProfile(UserProfile()); // clears verification
+
+    if (!mounted) return;
+    navigator.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const VerificationScreen()),
+      (route) => false,
     );
   }
 

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'onboarding_screen.dart';
+import 'verification_screen.dart';
+import '../services/local_storage_service.dart';
 import '../main.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -70,12 +72,21 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
     final prefs = await SharedPreferences.getInstance();
     final seen = prefs.getBool('onboarding_done') ?? false;
+    final profile = await LocalStorageService.getProfile();
+
+    Widget destination;
+    if (!seen) {
+      destination = const OnboardingScreen();
+    } else if (!profile.isVerified) {
+      destination = const VerificationScreen();
+    } else {
+      destination = const MainNavigationScreen();
+    }
 
     if (mounted) {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              seen ? const MainNavigationScreen() : const OnboardingScreen(),
+          pageBuilder: (context, animation, secondaryAnimation) => destination,
           transitionsBuilder: (context, anim, secondaryAnim, child) =>
               FadeTransition(opacity: anim, child: child),
           transitionDuration: const Duration(milliseconds: 600),
@@ -190,22 +201,23 @@ class _SplashScreenState extends State<SplashScreen>
                             ],
                           ).createShader(bounds),
                           child: const Text(
-                            'RideShare',
+                            'Spiti Setu',
                             style: TextStyle(
-                              fontSize: 38,
+                              fontSize: 40,
                               fontWeight: FontWeight.w900,
                               color: Colors.white,
                               letterSpacing: -1,
                             ),
                           ),
                         ),
+                        const SizedBox(height: 4),
                         const Text(
-                          'to Spiti',
+                          'Stays · Food · Rides',
                           style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w300,
-                            color: Colors.white60,
-                            letterSpacing: 4,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w400,
+                            color: Colors.white70,
+                            letterSpacing: 2,
                           ),
                         ),
                         const SizedBox(height: 12),

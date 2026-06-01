@@ -87,6 +87,7 @@ class BookedTrip {
 class UserProfile {
   String name;
   String phone;
+  String email;
   int tripsCount;
   double totalSpent;
   double rating;
@@ -94,10 +95,15 @@ class UserProfile {
   double currentLat;
   double currentLng;
   bool isRegistered;
+  bool phoneVerified;
+  bool emailVerified;
+  bool isAdmin;
+  String avatarPath; // profile photo (URL or local path)
 
   UserProfile({
     this.name = '',
     this.phone = '',
+    this.email = '',
     this.tripsCount = 0,
     this.totalSpent = 0.0,
     this.rating = 5.0,
@@ -105,11 +111,19 @@ class UserProfile {
     this.currentLat = 32.2276,
     this.currentLng = 78.0710,
     this.isRegistered = false,
+    this.phoneVerified = false,
+    this.emailVerified = false,
+    this.isAdmin = false,
+    this.avatarPath = '',
   });
+
+  /// A user counts as verified once they have completed OTP for phone or email.
+  bool get isVerified => isRegistered && (phoneVerified || emailVerified);
 
   Map<String, dynamic> toJson() => {
         'name': name,
         'phone': phone,
+        'email': email,
         'tripsCount': tripsCount,
         'totalSpent': totalSpent,
         'rating': rating,
@@ -117,11 +131,16 @@ class UserProfile {
         'currentLat': currentLat,
         'currentLng': currentLng,
         'isRegistered': isRegistered,
+        'phoneVerified': phoneVerified,
+        'emailVerified': emailVerified,
+        'isAdmin': isAdmin,
+        'avatarPath': avatarPath,
       };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
         name: json['name'] ?? '',
         phone: json['phone'] ?? '',
+        email: json['email'] ?? '',
         tripsCount: json['tripsCount'] ?? 0,
         totalSpent: (json['totalSpent'] as num?)?.toDouble() ?? 0.0,
         rating: (json['rating'] as num?)?.toDouble() ?? 5.0,
@@ -129,5 +148,9 @@ class UserProfile {
         currentLat: (json['currentLat'] as num?)?.toDouble() ?? 32.2276,
         currentLng: (json['currentLng'] as num?)?.toDouble() ?? 78.0710,
         isRegistered: json['isRegistered'] ?? false,
+        phoneVerified: json['phoneVerified'] ?? false,
+        emailVerified: json['emailVerified'] ?? false,
+        isAdmin: json['isAdmin'] ?? false,
+        avatarPath: json['avatarPath'] ?? '',
       );
 }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/passenger_request_model.dart';
+import '../widgets/review_sheet.dart';
+import '../services/local_storage_service.dart';
 
 class PassengerRequestsScreen extends StatefulWidget {
   const PassengerRequestsScreen({super.key});
@@ -13,6 +15,27 @@ class PassengerRequestsScreen extends StatefulWidget {
 
 class _PassengerRequestsScreenState extends State<PassengerRequestsScreen> {
   String _filterRoute = 'All';
+  final Map<String, String> _decisions = {}; // requestId -> 'accepted' | 'rejected'
+
+  void _decide(PassengerRequest req, String decision) {
+    HapticFeedback.mediumImpact();
+    setState(() => _decisions[req.id] = decision);
+    if (decision == 'accepted') {
+      LocalStorageService.addNotification(
+        'Passenger request accepted',
+        'You accepted ${req.passengerName} (${req.from} → ${req.to}). Call them to confirm seats.',
+      );
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(decision == 'accepted'
+            ? '✅ Accepted ${req.passengerName}. Ab call karke seat confirm karein!'
+            : '❌ Rejected ${req.passengerName}\'s request.'),
+        backgroundColor: decision == 'accepted' ? const Color(0xFF10B981) : Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
 
   final List<String> _routeFilters = [
     'All', 'To Spiti', 'From Spiti', 'Within Spiti', 'Other'
@@ -60,8 +83,9 @@ class _PassengerRequestsScreenState extends State<PassengerRequestsScreen> {
     final subText = isDark ? Colors.grey[400] : Colors.grey[600];
 
     final provider = Provider.of<PassengerRequestProvider>(context);
-    final filtered =
-        provider.requests.where(_matchesFilter).toList();
+    final filtered = provider.requests
+        .where((r) => _matchesFilter(r) && DateTime.now().difference(r.createdAt) <= LocalStorageService.requestValidity)
+        .toList();
 
     return Scaffold(
       backgroundColor: bg,
@@ -174,6 +198,9 @@ class _PassengerRequestsScreenState extends State<PassengerRequestsScreen> {
                       isDark: isDark,
                       primaryText: primaryText,
                       subText: subText,
+                      status: _decisions[filtered[i].id],
+                      onAccept: () => _decide(filtered[i], 'accepted'),
+                      onReject: () => _decide(filtered[i], 'rejected'),
                       onContact: () {
                         HapticFeedback.mediumImpact();
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -201,6 +228,9 @@ class _RequestCard extends StatelessWidget {
   final Color primaryText;
   final Color? subText;
   final VoidCallback onContact;
+  final String? status; // null | 'accepted' | 'rejected'
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
 
   const _RequestCard({
     required this.request,
@@ -209,6 +239,9 @@ class _RequestCard extends StatelessWidget {
     required this.primaryText,
     required this.subText,
     required this.onContact,
+    required this.status,
+    required this.onAccept,
+    required this.onReject,
   });
 
   @override
@@ -455,7 +488,7 @@ class _RequestCard extends StatelessWidget {
                         onPressed: onContact,
                         icon: const Icon(Icons.phone,
                             size: 14, color: Colors.white),
-                        label: const Text('Call Passenger'),
+                        label: const Text('Call'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF10B981),
                           foregroundColor: Colors.white,
@@ -465,8 +498,99 @@ class _RequestCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    OutlinedButton(
+                      onPressed: () => showWriteReviewSheet(
+                        context,
+                        category: 'ride',
+                        subjectId: request.phone,
+                        subjectName: request.passengerName,
+                        authorRole: 'Driver',
+                        accent: const Color(0xFF6366F1),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF6366F1),
+                        side: const BorderSide(color: Color(0xFF6366F1)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.star_outline, size: 14),
+                          SizedBox(width: 4),
+                          Text('Rate'),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Text("Verified rating: ",
+                        style: TextStyle(color: subText, fontSize: 12, fontWeight: FontWeight.bold)),
+                    RatingBadge(
+                      category: 'ride',
+                      subjectId: request.phone,
+                      subjectName: request.passengerName,
+                      writeRole: 'Driver',
+                      accent: const Color(0xFF6366F1),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (status == null)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: onReject,
+                          icon: const Icon(Icons.close, size: 16),
+                          label: const Text("Reject", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.redAccent,
+                            side: const BorderSide(color: Colors.redAccent),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: onAccept,
+                          icon: const Icon(Icons.check, size: 16, color: Colors.white),
+                          label: const Text("Accept", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B981),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                    decoration: BoxDecoration(
+                      color: (status == 'accepted' ? const Color(0xFF10B981) : Colors.redAccent).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      status == 'accepted' ? "✓ Accepted — call to confirm" : "✗ Rejected",
+                      style: TextStyle(
+                        color: status == 'accepted' ? const Color(0xFF10B981) : Colors.redAccent,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

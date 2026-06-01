@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../models/ride_model.dart';
+import '../models/stay_model.dart';
 import '../widgets/ride_card.dart';
+import '../widgets/stay_card.dart';
+import '../widgets/ad_carousel.dart';
 import '../services/local_storage_service.dart';
 import '../models/booked_trip_model.dart';
 import '../services/proximity_service.dart';
 import 'post_request_screen.dart';
+import 'post_stay_request_screen.dart';
 
 class PassengerScreen extends StatefulWidget {
   const PassengerScreen({super.key});
@@ -20,6 +25,7 @@ class _PassengerScreenState extends State<PassengerScreen> {
   final TextEditingController _fromController = TextEditingController();
   final TextEditingController _toController = TextEditingController();
   String _selectedType = "all";
+  double _budgetFilter = 5000.0;
   final MapController _mapController = MapController();
   UserProfile _userProfile = UserProfile();
 
@@ -43,6 +49,8 @@ class _PassengerScreenState extends State<PassengerScreen> {
 
   void _checkNearbyAlerts() {
     final rideProvider = Provider.of<RideProvider>(context, listen: false);
+    // Ride proximity alerts belong only on the Ride finder — not on Stay/Food.
+    if (rideProvider.appMode != AppMode.ride) return;
     final rides = rideProvider.rides;
     for (var ride in rides) {
       final distance = ProximityService.calculateDistance(
@@ -94,48 +102,84 @@ class _PassengerScreenState extends State<PassengerScreen> {
     );
   }
 
+  /// Returns a hint if this ride matched as an "along the way" ride (passes
+  /// near/in-between), rather than a direct from→to match. Null = direct/none.
+  String? _rideMatchNote(Ride ride) {
+    final from = _fromController.text.trim();
+    final to = _toController.text.trim();
+    if (from.isEmpty && to.isEmpty) return null;
+    final directFrom = from.isEmpty || ride.from.toLowerCase().contains(from.toLowerCase());
+    final directTo = to.isEmpty || ride.to.toLowerCase().contains(to.toLowerCase());
+    if (directFrom && directTo) return null; // exact route match — no hint needed
+    return "Passes near your route — reach the pickup point if a seat is free";
+  }
+
   void _resetFilters() {
     _fromController.clear();
     _toController.clear();
     setState(() {
       _selectedType = "all";
+      _budgetFilter = 5000.0;
     });
-    Provider.of<RideProvider>(context, listen: false).resetFilters();
+    _applyFilters();
   }
 
   void _focusOnLocation(double lat, double lng) {
-    _mapController.move(LatLng(lat, lng), 12.0);
+    _mapController.move(LatLng(lat, lng), 13.5);
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final rideProvider = Provider.of<RideProvider>(context);
-    final activeRides = rideProvider.rides;
-    final centerLatLng = LatLng(32.2276, 78.0710);
-    final isMobile = MediaQuery.of(context).size.width < 750;
+    final stayProvider = Provider.of<StayProvider>(context);
+    // Pin the viewer's own rides to the top so a freshly-broadcast ride is
+    // always immediately visible (a pending server timestamp can otherwise
+    // sort it to the bottom for a few seconds).
+    final allActiveRides = rideProvider.rides;
+    final activeRides = _userProfile.phone.isEmpty
+        ? allActiveRides
+        : [
+            ...allActiveRides.where((r) => r.phone == _userProfile.phone),
+            ...allActiveRides.where((r) => r.phone != _userProfile.phone),
+          ];
 
-    final isDarkMode = rideProvider.isDarkMode;
+    // Stays list based on budget and search keyword
+    final activeStays = stayProvider.stays.where((stay) {
+      final query = _fromController.text.toLowerCase();
+      final matchesSearch = stay.title.toLowerCase().contains(query) ||
+          stay.description.toLowerCase().contains(query) ||
+          stay.hostName.toLowerCase().contains(query);
+      final matchesBudget = stay.pricePerNight <= _budgetFilter;
+      return matchesSearch && matchesBudget;
+    }).toList();
+
+    final width = MediaQuery.of(context).size.width;
+    final isMobile = width < 750;
+
+    final scaffoldBg = isDarkMode ? const Color(0xFF090D16) : const Color(0xFFF8FAFC);
+    final cardBgColor = isDarkMode ? const Color(0xFF111827) : Colors.white;
+    final cardBorderColor = isDarkMode ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08);
+    final activeTagColor = isDarkMode ? const Color(0xFF818CF8) : const Color(0xFF4F46E5);
+    final alertBg = isDarkMode ? const Color(0xFF1E1B4B) : const Color(0xFFEEF2FF);
+    final alertText = isDarkMode ? const Color(0xFFC7D2FE) : const Color(0xFF3730A3);
+    final alertSubtext = isDarkMode ? Colors.grey[400] : Colors.grey[600];
+
     final mapOverlayBg = isDarkMode ? const Color(0xFF090D16).withValues(alpha: 0.85) : Colors.white.withValues(alpha: 0.85);
     final mapOverlayBorder = isDarkMode ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.1);
     final mapOverlayText = isDarkMode ? Colors.white : Colors.black;
 
-    final cardBgColor = isDarkMode ? const Color(0xFF111827).withValues(alpha: 0.7) : Colors.white;
-    final cardBorderColor = isDarkMode ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.08);
+    // Center Kaza coordinates
+    final initialCenter = LatLng(32.2276, 78.0710);
 
-    final scaffoldBg = isDarkMode ? const Color(0xFF090D16) : const Color(0xFFF8FAFC);
-    final alertBg = isDarkMode ? const Color(0xFF1E293B) : const Color(0xFFEEF2F6);
-    final alertText = isDarkMode ? Colors.white : Colors.black87;
-    final alertSubtext = isDarkMode ? Colors.grey : Colors.grey[700];
-    final activeTagColor = isDarkMode ? const Color(0xFFA5B4FC) : const Color(0xFF6366F1);
-
-    // The live tracking map layer widget
-    Widget mapWidget = Stack(
+    // Map configuration
+    final mapWidget = Stack(
       children: [
         FlutterMap(
           mapController: _mapController,
           options: MapOptions(
-            initialCenter: centerLatLng,
-            initialZoom: 8.0,
+            initialCenter: initialCenter,
+            initialZoom: 11.5,
           ),
           children: [
             TileLayer(
@@ -146,54 +190,73 @@ class _PassengerScreenState extends State<PassengerScreen> {
               retinaMode: RetinaMode.isHighDensity(context),
             ),
             MarkerLayer(
-              markers: activeRides.map((ride) {
-                String emoji = "🚕";
-                Color markerColor = const Color(0xFF6366F1);
-                if (ride.vehicleType == VehicleType.tempo) {
-                  emoji = "🚐";
-                  markerColor = const Color(0xFFA855F7);
-                } else if (ride.vehicleType == VehicleType.private) {
-                  emoji = "🚗";
-                  markerColor = const Color(0xFF06B6D4);
-                }
+              markers: rideProvider.appMode == AppMode.ride
+                  ? activeRides.map((ride) {
+                      String emoji = "🚕";
+                      Color markerColor = const Color(0xFF6366F1);
+                      if (ride.vehicleType == VehicleType.tempo) {
+                        emoji = "🚐";
+                        markerColor = const Color(0xFFA855F7);
+                      } else if (ride.vehicleType == VehicleType.private) {
+                        emoji = "🚗";
+                        markerColor = const Color(0xFF06B6D4);
+                      }
 
-                return Marker(
-                  width: 45.0,
-                  height: 45.0,
-                  point: LatLng(ride.lat, ride.lng),
-                  child: GestureDetector(
-                    onTap: () {
-                      _focusOnLocation(ride.lat, ride.lng);
-                    },
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Container(
-                          width: 45,
-                          height: 45,
-                          decoration: BoxDecoration(
-                            color: markerColor,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                            boxShadow: [
-                              BoxShadow(
-                                color: markerColor.withValues(alpha: 0.5),
-                                blurRadius: 10,
-                                spreadRadius: 2,
-                              )
-                            ],
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            emoji,
-                            style: const TextStyle(fontSize: 18),
+                      return Marker(
+                        width: 45.0,
+                        height: 45.0,
+                        point: LatLng(ride.lat, ride.lng),
+                        child: GestureDetector(
+                          onTap: () => _focusOnLocation(ride.lat, ride.lng),
+                          child: Container(
+                            width: 45,
+                            height: 45,
+                            decoration: BoxDecoration(
+                              color: markerColor,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: markerColor.withValues(alpha: 0.5),
+                                  blurRadius: 10,
+                                  spreadRadius: 2,
+                                )
+                              ],
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(emoji, style: const TextStyle(fontSize: 18)),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
+                      );
+                    }).toList()
+                  : activeStays.map((stay) {
+                      return Marker(
+                        width: 45.0,
+                        height: 45.0,
+                        point: LatLng(stay.lat, stay.lng),
+                        child: GestureDetector(
+                          onTap: () => _focusOnLocation(stay.lat, stay.lng),
+                          child: Container(
+                            width: 45,
+                            height: 45,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0D9488),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF0D9488).withValues(alpha: 0.5),
+                                  blurRadius: 10,
+                                  spreadRadius: 2,
+                                )
+                              ],
+                            ),
+                            alignment: Alignment.center,
+                            child: const Text("🏡", style: TextStyle(fontSize: 18)),
+                          ),
+                        ),
+                      );
+                    }).toList(),
             ),
           ],
         ),
@@ -209,10 +272,10 @@ class _PassengerScreenState extends State<PassengerScreen> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.map, size: 14, color: Color(0xFF818CF8)),
+                Icon(Icons.map, size: 14, color: rideProvider.appMode == AppMode.ride ? const Color(0xFF818CF8) : const Color(0xFF14B8A6)),
                 const SizedBox(width: 6),
                 Text(
-                  "Live Spiti Tracking Map",
+                  rideProvider.appMode == AppMode.ride ? "Live Spiti Tracking Map" : "Spiti Homestay & Guest House Map",
                   style: TextStyle(color: mapOverlayText, fontSize: 11, fontWeight: FontWeight.bold),
                 ),
               ],
@@ -231,7 +294,7 @@ class _PassengerScreenState extends State<PassengerScreen> {
           children: [
             if (!isMobile) ...[
               Text(
-                "RideShare to Spiti",
+                rideProvider.appMode == AppMode.ride ? "RideShare to Spiti" : "FindStay Spiti",
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w900,
@@ -250,125 +313,201 @@ class _PassengerScreenState extends State<PassengerScreen> {
               ),
               child: Column(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _fromController,
-                          style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
-                          decoration: InputDecoration(
-                            labelText: "FROM (KAHAN SE)",
-                            labelStyle: const TextStyle(color: Colors.grey, fontSize: 9),
-                            enabledBorder: OutlineInputBorder(
-                              borderSide: BorderSide(color: isDarkMode ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.15)),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderSide: const BorderSide(color: Color(0xFF6366F1)),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          ),
-                          onChanged: (_) => _applyFilters(),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: _toController,
-                          style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
-                          decoration: InputDecoration(
-                            labelText: "TO (KAHAN TAK)",
-                            labelStyle: const TextStyle(color: Colors.grey, fontSize: 9),
-                            enabledBorder: OutlineInputBorder(
-                              borderSide: BorderSide(color: isDarkMode ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.15)),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderSide: const BorderSide(color: Color(0xFF6366F1)),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          ),
-                          onChanged: (_) => _applyFilters(),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: 42,
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _selectedType,
-                            isExpanded: true,
-                            dropdownColor: Theme.of(context).colorScheme.surface,
-                            style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 12),
+                  if (rideProvider.appMode == AppMode.ride) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _fromController,
+                            style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
                             decoration: InputDecoration(
-                              labelText: "VEHICLE TYPE",
-                              labelStyle: const TextStyle(color: Colors.grey, fontSize: 8),
+                              labelText: "FROM (KAHAN SE)",
+                              labelStyle: const TextStyle(color: Colors.grey, fontSize: 9),
                               enabledBorder: OutlineInputBorder(
                                 borderSide: BorderSide(color: isDarkMode ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.15)),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              focusedBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(color: Color(0xFF6366F1)),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             ),
-                            items: const [
-                              DropdownMenuItem(value: "all", child: Text("All Vehicles")),
-                              DropdownMenuItem(value: "taxi", child: Text("🚕 Taxi")),
-                              DropdownMenuItem(value: "tempo", child: Text("🚐 Tempo")),
-                              DropdownMenuItem(value: "private", child: Text("🚗 Private")),
-                              DropdownMenuItem(value: "suv", child: Text("🚙 SUV / 4x4")),
-                              DropdownMenuItem(value: "bus", child: Text("🚌 Local Bus")),
-                              DropdownMenuItem(value: "bike", child: Text("🏍️ Motorcycle")),
+                            onChanged: (_) => _applyFilters(),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _toController,
+                            style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
+                            decoration: InputDecoration(
+                              labelText: "TO (KAHAN TAK)",
+                              labelStyle: const TextStyle(color: Colors.grey, fontSize: 9),
+                              enabledBorder: OutlineInputBorder(
+                                borderSide: BorderSide(color: isDarkMode ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.15)),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(color: Color(0xFF6366F1)),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            ),
+                            onChanged: (_) => _applyFilters(),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 42,
+                            child: DropdownButtonFormField<String>(
+                              initialValue: _selectedType,
+                              isExpanded: true,
+                              dropdownColor: Theme.of(context).colorScheme.surface,
+                              style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 12),
+                              decoration: InputDecoration(
+                                labelText: "VEHICLE TYPE",
+                                labelStyle: const TextStyle(color: Colors.grey, fontSize: 8),
+                                enabledBorder: OutlineInputBorder(
+                                  borderSide: BorderSide(color: isDarkMode ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.15)),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: "all", child: Text("All Vehicles")),
+                                DropdownMenuItem(value: "taxi", child: Text("🚕 Taxi")),
+                                DropdownMenuItem(value: "tempo", child: Text("🚐 Tempo")),
+                                DropdownMenuItem(value: "private", child: Text("🚗 Private")),
+                                DropdownMenuItem(value: "suv", child: Text("🚙 SUV / 4x4")),
+                                DropdownMenuItem(value: "bus", child: Text("🚌 Local Bus")),
+                                DropdownMenuItem(value: "bike", child: Text("🏍️ Motorcycle")),
+                              ],
+                              onChanged: (value) {
+                                setState(() {
+                                  _selectedType = value!;
+                                });
+                                _applyFilters();
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: _resetFilters,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF6366F1),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          ),
+                          child: const Text("Reset", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    // Stay Filters
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _fromController, // reuse this controller for homestay location searches
+                            style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
+                            decoration: InputDecoration(
+                              labelText: "SEARCH VILLAGE / KEYWORD (e.g. Kaza, Kibber)",
+                              labelStyle: const TextStyle(color: Colors.grey, fontSize: 9),
+                              prefixIcon: const Icon(Icons.search, size: 16, color: Color(0xFF0D9488)),
+                              enabledBorder: OutlineInputBorder(
+                                borderSide: BorderSide(color: isDarkMode ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.15)),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(color: Color(0xFF0D9488)),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            ),
+                            onChanged: (_) => setState(() {}),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text("Max Price/Night", style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                  Text("₹${_budgetFilter.toInt()}", style: const TextStyle(fontSize: 11, color: Color(0xFF0D9488), fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                              Slider(
+                                value: _budgetFilter,
+                                min: 500.0,
+                                max: 5000.0,
+                                divisions: 18,
+                                activeColor: const Color(0xFF0D9488),
+                                inactiveColor: isDarkMode ? Colors.white10 : Colors.black12,
+                                onChanged: (val) => setState(() => _budgetFilter = val),
+                              ),
                             ],
-                            onChanged: (value) {
-                              setState(() {
-                                _selectedType = value!;
-                              });
-                              _applyFilters();
-                            },
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: _resetFilters,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF6366F1),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                        const SizedBox(width: 12),
+                        ElevatedButton(
+                          onPressed: _resetFilters,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0D9488),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          child: const Text("Reset", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
                         ),
-                        child: const Text("Reset", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-                      ),
-                    ],
-                  ),
+                      ],
+                    )
+                  ],
                 ],
               ),
             ),
             const SizedBox(height: 16),
-            // Broadcast travel need banner
+            
+            // Broadcast Need Banner
             GestureDetector(
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const PostRequestScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => rideProvider.appMode == AppMode.ride
+                        ? const PostRequestScreen()
+                        : const PostStayRequestScreen(),
+                  ),
                 );
               },
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+                  gradient: LinearGradient(
+                    colors: rideProvider.appMode == AppMode.ride
+                        ? [const Color(0xFF4F46E5), const Color(0xFF6366F1)]
+                        : [const Color(0xFF0D9488), const Color(0xFF14B8A6)],
                   ),
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
+                      color: (rideProvider.appMode == AppMode.ride ? const Color(0xFF4F46E5) : const Color(0xFF0D9488)).withValues(alpha: 0.25),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -389,9 +528,9 @@ class _PassengerScreenState extends State<PassengerScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            "Can't find a direct ride?",
-                            style: TextStyle(
+                          Text(
+                            rideProvider.appMode == AppMode.ride ? "Can't find a direct ride?" : "Looking for rooms in Spiti?",
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 13,
                               fontWeight: FontWeight.bold,
@@ -399,7 +538,9 @@ class _PassengerScreenState extends State<PassengerScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            "📢 Broadcast your travel details so drivers can contact you!",
+                            rideProvider.appMode == AppMode.ride 
+                                ? "📢 Broadcast your travel details so drivers can contact you!"
+                                : "📢 Broadcast your stay requirements so local hosts can call you!",
                             style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.85),
                               fontSize: 10.5,
@@ -414,17 +555,25 @@ class _PassengerScreenState extends State<PassengerScreen> {
               ),
             ),
             const SizedBox(height: 16),
+
+            // Location permission card
             if (!_userProfile.locationPermissionGranted) ...[
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: alertBg,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+                  border: Border.all(
+                    color: (rideProvider.appMode == AppMode.ride ? const Color(0xFF6366F1) : const Color(0xFF0D9488)).withValues(alpha: 0.3),
+                  ),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.location_searching, color: Color(0xFF6366F1), size: 24),
+                    Icon(
+                      Icons.location_searching, 
+                      color: rideProvider.appMode == AppMode.ride ? const Color(0xFF6366F1) : const Color(0xFF0D9488), 
+                      size: 24,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -440,7 +589,9 @@ class _PassengerScreenState extends State<PassengerScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            "Get auto-alerts about nearby drivers & matching rides within 20 km!",
+                            rideProvider.appMode == AppMode.ride
+                                ? "Get auto-alerts about nearby drivers & matching rides within 20 km!"
+                                : "Get auto-alerts when matching stay requests or hosts are active within 20 km!",
                             style: TextStyle(
                               color: alertSubtext,
                               fontSize: 10.5,
@@ -465,7 +616,7 @@ class _PassengerScreenState extends State<PassengerScreen> {
                         );
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF6366F1),
+                        backgroundColor: rideProvider.appMode == AppMode.ride ? const Color(0xFF6366F1) : const Color(0xFF0D9488),
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -483,136 +634,133 @@ class _PassengerScreenState extends State<PassengerScreen> {
               ),
               const SizedBox(height: 16),
             ],
-            // Local Ads Banner Carousel (FutureBuilder)
-            FutureBuilder<List<Map<String, dynamic>>>(
-              future: LocalStorageService.getAds(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const SizedBox.shrink();
-                final activeAds = snapshot.data!
-                    .where((ad) => ad['isActive'] == true)
-                    .toList();
-                if (activeAds.isEmpty) return const SizedBox.shrink();
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            "🌟 Local Tourism Promotions",
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text(
-                            "SPITI ADMIN APPROVED",
-                            style: TextStyle(
-                              fontSize: 8,
-                              color: Color(0xFF10B981),
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 135,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: activeAds.length,
-                        itemBuilder: (context, index) {
-                          final ad = activeAds[index];
-                          return _buildAdCard(context, ad, isDarkMode);
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                );
-              },
-            ),
-            // Active Rides Label
+
+            // Sponsored ads carousel — cross-promoted across modes
+            AdCarousel(currentCategory: rideProvider.appMode == AppMode.ride ? 'ride' : 'stay'),
+
+            // Active Rides / Stays Label
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  "Available Rides",
+                  rideProvider.appMode == AppMode.ride ? "Available Rides" : "Available Homestays",
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                    color: (rideProvider.appMode == AppMode.ride ? const Color(0xFF6366F1) : const Color(0xFF0D9488)).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+                    border: Border.all(
+                      color: (rideProvider.appMode == AppMode.ride ? const Color(0xFF6366F1) : const Color(0xFF0D9488)).withValues(alpha: 0.3),
+                    ),
                   ),
                   child: Text(
-                    "${activeRides.length} active",
-                    style: TextStyle(fontSize: 11, color: activeTagColor, fontWeight: FontWeight.bold),
+                    rideProvider.appMode == AppMode.ride
+                        ? "${activeRides.length} active"
+                        : "${activeStays.length} active",
+                    style: TextStyle(
+                      fontSize: 11, 
+                      color: rideProvider.appMode == AppMode.ride ? activeTagColor : const Color(0xFF10B981), 
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 )
               ],
             ),
             const SizedBox(height: 12),
-            // Rides Grid / List
+
+            // Stays / Rides Grid / List
             useScrollableList
-                ? (activeRides.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 32),
-                        child: Center(
-                          child: Text(
-                            "No Rides Active.\nTry resetting filters!",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        ),
-                      )
-                    : ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: activeRides.length,
-                        itemBuilder: (context, index) {
-                          final ride = activeRides[index];
-                          return RideCard(
-                            ride: ride,
-                            userLat: _userProfile.locationPermissionGranted ? _userProfile.currentLat : null,
-                            userLng: _userProfile.locationPermissionGranted ? _userProfile.currentLng : null,
-                          );
-                        },
-                      ))
-                : Expanded(
-                    child: activeRides.isEmpty
-                        ? const Center(
-                            child: Text(
-                              "No Rides Active.\nTry resetting filters!",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey),
-                            ),
+                ? (rideProvider.appMode == AppMode.ride
+                    ? (activeRides.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 32),
+                            child: Center(child: Text("No Rides Active.\nTry resetting filters!", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey))),
                           )
                         : ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
                             itemCount: activeRides.length,
                             itemBuilder: (context, index) {
                               final ride = activeRides[index];
                               return RideCard(
                                 ride: ride,
+                                matchNote: _rideMatchNote(ride),
                                 userLat: _userProfile.locationPermissionGranted ? _userProfile.currentLat : null,
                                 userLng: _userProfile.locationPermissionGranted ? _userProfile.currentLng : null,
                               );
                             },
-                          ),
+                          ))
+                    : (activeStays.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 32),
+                            child: Center(child: Text("No Homestays found.\nTry adjusting budget/search!", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey))),
+                          )
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: activeStays.length,
+                            itemBuilder: (context, index) {
+                              final stay = activeStays[index];
+                              return StayCard(
+                                stay: stay,
+                                isDark: isDarkMode,
+                                primaryText: Theme.of(context).colorScheme.onSurface,
+                                subText: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                                myPhone: _userProfile.phone,
+                                userLat: _userProfile.locationPermissionGranted ? _userProfile.currentLat : null,
+                                userLng: _userProfile.locationPermissionGranted ? _userProfile.currentLng : null,
+                                onBook: () {
+                                  HapticFeedback.mediumImpact();
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text("Calling host ${stay.hostName} at ${stay.phone}..."), backgroundColor: const Color(0xFF0D9488)),
+                                  );
+                                },
+                                onTrack: () => _focusOnLocation(stay.lat, stay.lng),
+                              );
+                            },
+                          )))
+                : Expanded(
+                    child: rideProvider.appMode == AppMode.ride
+                        ? (activeRides.isEmpty
+                            ? const Center(child: Text("No Rides Active.\nTry resetting filters!", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)))
+                            : ListView.builder(
+                                itemCount: activeRides.length,
+                                itemBuilder: (context, index) {
+                                  final ride = activeRides[index];
+                                  return RideCard(
+                                    ride: ride,
+                                    matchNote: _rideMatchNote(ride),
+                                    userLat: _userProfile.locationPermissionGranted ? _userProfile.currentLat : null,
+                                    userLng: _userProfile.locationPermissionGranted ? _userProfile.currentLng : null,
+                                  );
+                                },
+                              ))
+                        : (activeStays.isEmpty
+                            ? const Center(child: Text("No Homestays found.\nTry adjusting budget/search!", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)))
+                            : ListView.builder(
+                                itemCount: activeStays.length,
+                                itemBuilder: (context, index) {
+                                  final stay = activeStays[index];
+                                  return StayCard(
+                                    stay: stay,
+                                    isDark: isDarkMode,
+                                    primaryText: Theme.of(context).colorScheme.onSurface,
+                                    subText: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                                    myPhone: _userProfile.phone,
+                                    userLat: _userProfile.locationPermissionGranted ? _userProfile.currentLat : null,
+                                    userLng: _userProfile.locationPermissionGranted ? _userProfile.currentLng : null,
+                                    onBook: () {
+                                      HapticFeedback.mediumImpact();
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text("Calling host ${stay.hostName} at ${stay.phone}..."), backgroundColor: const Color(0xFF0D9488)),
+                                      );
+                                    },
+                                    onTrack: () => _focusOnLocation(stay.lat, stay.lng),
+                                  );
+                                },
+                              )),
                   ),
           ],
         ),
@@ -651,150 +799,21 @@ class _PassengerScreenState extends State<PassengerScreen> {
         onPressed: () {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const PostRequestScreen()),
+            MaterialPageRoute(
+              builder: (_) => rideProvider.appMode == AppMode.ride
+                  ? const PostRequestScreen()
+                  : const PostStayRequestScreen(),
+            ),
           );
         },
-        backgroundColor: const Color(0xFF6366F1),
+        backgroundColor: rideProvider.appMode == AppMode.ride ? const Color(0xFF6366F1) : const Color(0xFF0D9488),
         icon: const Icon(Icons.campaign, color: Colors.white),
-        label: const Text("Broadcast Need", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-      ),
-    );
-  }
-
-  Widget _buildAdCard(BuildContext context, Map<String, dynamic> ad, bool isDarkMode) {
-    final width = MediaQuery.of(context).size.width;
-    final cardWidth = width < 600 ? width - 48 : 360.0;
-
-    return Container(
-      width: cardWidth,
-      margin: const EdgeInsets.only(right: 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Stack(
-          children: [
-            // Background Image
-            Positioned.fill(
-              child: Image.network(
-                ad['imageUrl'] ?? 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=400',
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFF3B82F6), Color(0xFF1E3A8A)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                    child: const Icon(Icons.image, color: Colors.white24, size: 40),
-                  );
-                },
-              ),
-            ),
-            // Gradient Overlay for legibility
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.black.withValues(alpha: 0.85),
-                      Colors.black.withValues(alpha: 0.3),
-                      Colors.transparent,
-                    ],
-                    begin: Alignment.bottomLeft,
-                    end: Alignment.topRight,
-                  ),
-                ),
-              ),
-            ),
-            // Text & Button Content
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Text(
-                    ad['title'] ?? 'Promotion',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.bold,
-                      shadows: [
-                        Shadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 1)),
-                      ],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    ad['body'] ?? '',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      fontSize: 10.5,
-                      height: 1.2,
-                      shadows: const [
-                        Shadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 1)),
-                      ],
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 6),
-                  // Call to action pill
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF6366F1).withValues(alpha: 0.9),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.phone, color: Colors.white, size: 10),
-                            const SizedBox(width: 4),
-                            Text(
-                              ad['link'] ?? 'Call Now',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Small indicator arrow
-                      Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 8),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+        label: Text(
+          rideProvider.appMode == AppMode.ride ? "Broadcast Need" : "FindStay Seeker",
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
     );
   }
+
 }
