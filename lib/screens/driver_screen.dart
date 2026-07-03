@@ -19,6 +19,7 @@ import 'manage_rooms_screen.dart';
 import '../widgets/photo_picker_field.dart';
 import '../widgets/place_autocomplete_field.dart';
 import '../widgets/app_network_image.dart';
+import '../services/phone_utils.dart';
 
 class DriverScreen extends StatefulWidget {
   final VoidCallback onRegistrationSuccess;
@@ -187,7 +188,7 @@ class _DriverScreenState extends State<DriverScreen> {
   /// broadcasting another ride is quick (they only change route / time / price).
   void _prefillVehicleFromLastRide(RideProvider rideProvider) {
     if (widget.editRide != null || _vehicleNameController.text.isNotEmpty) return;
-    final mine = rideProvider.allRides.where((r) => r.phone == _userProfile.phone).toList();
+    final mine = rideProvider.allRides.where((r) => samePhone(r.phone, _userProfile.phone)).toList();
     if (mine.isEmpty) return;
     final last = mine.first;
     _selectedType = last.vehicleType;
@@ -416,7 +417,7 @@ class _DriverScreenState extends State<DriverScreen> {
     final subText = isDark ? Colors.grey[400] : Colors.grey[600];
     const teal = Color(0xFF0D9488);
 
-    final mine = stayProvider.stays.where((s) => s.phone.isNotEmpty && s.phone == _userProfile.phone).toList();
+    final mine = stayProvider.stays.where((s) => samePhone(s.phone, _userProfile.phone)).toList();
     final reqCount = stayProvider.stayRequests.length;
 
     return SingleChildScrollView(
@@ -930,7 +931,7 @@ class _DriverScreenState extends State<DriverScreen> {
     final subText = isDark ? Colors.grey[400] : Colors.grey[600];
 
     // Use the unfiltered list so search filters don't hide the driver's rides.
-    final mine = rideProvider.allRides.where((r) => r.phone.isNotEmpty && r.phone == _userProfile.phone).toList();
+    final mine = rideProvider.allRides.where((r) => samePhone(r.phone, _userProfile.phone)).toList();
     final reqCount = Provider.of<PassengerRequestProvider>(context).requests.length;
 
     return SingleChildScrollView(
@@ -1123,6 +1124,90 @@ class _DriverScreenState extends State<DriverScreen> {
           ),
           const SizedBox(height: 12),
           _seatLayoutGrid(context, rideProvider, r, primaryText, subText),
+          if (r.seatBookings.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _passengerList(r, primaryText, subText),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _dialNumber(String phone) async {
+    final uri = Uri.parse('tel:${phone.replaceAll(' ', '')}');
+    if (await canLaunchUrl(uri)) await launchUrl(uri);
+  }
+
+  /// One-glance passenger list under each ride — who holds which seat, with a
+  /// call button. Saves the driver from tapping every seat one by one.
+  Widget _passengerList(Ride r, Color primaryText, Color? subText) {
+    const green = Color(0xFF10B981);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: green.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: green.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.people_alt, color: green, size: 16),
+              const SizedBox(width: 6),
+              Text("Passenger List",
+                  style: TextStyle(color: primaryText, fontWeight: FontWeight.w900, fontSize: 13)),
+              const Spacer(),
+              Text("${r.seatBookings.length} seat(s)",
+                  style: const TextStyle(color: green, fontWeight: FontWeight.w800, fontSize: 12)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...r.seatBookings.map((b) {
+            final label = b.name.trim().isNotEmpty
+                ? b.name.trim()
+                : (b.byDriver ? 'Blocked by you' : 'Passenger');
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: green.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(b.seatId,
+                        style: const TextStyle(color: green, fontSize: 10.5, fontWeight: FontWeight.w800)),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      b.byDriver && b.name.trim().isNotEmpty ? '$label · walk-in' : label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: primaryText, fontSize: 12.5, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  if (b.phone.trim().isNotEmpty)
+                    IconButton(
+                      tooltip: 'Call ${b.phone}',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                      padding: EdgeInsets.zero,
+                      onPressed: () => _dialNumber(b.phone),
+                      icon: const Icon(Icons.call, color: green, size: 18),
+                    )
+                  else
+                    Text('no phone', style: TextStyle(color: subText, fontSize: 10.5)),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );
@@ -1444,6 +1529,24 @@ class _DriverScreenState extends State<DriverScreen> {
       }
 
       rideProvider.registerRide(newRide);
+
+      // Queue a pending driver verification for the admin console — the
+      // picked license/RC photos were previously discarded silently.
+      if (_licensePath.isNotEmpty || _rcPath.isNotEmpty) {
+        final licUrl = await StorageService.uploadPhoto(_licensePath, 'driver_docs');
+        final rcUrl = await StorageService.uploadPhoto(_rcPath, 'driver_docs');
+        LocalStorageService.addVerification({
+          'type': 'driver',
+          'driverName': newRide.driverName,
+          'vehicleName': newRide.vehicleName,
+          'plateNumber': newRide.plateNumber,
+          'phone': newRide.phone,
+          'isApproved': false,
+          'vehicleType': newRide.vehicleType.name,
+          'licensePhoto': licUrl,
+          'rcPhoto': rcUrl,
+        });
+      }
 
       messenger.showSnackBar(
         const SnackBar(

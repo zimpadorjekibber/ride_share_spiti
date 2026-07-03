@@ -146,6 +146,11 @@ class LocalStorageService {
     final raw = prefs.getStringList(_tripsKey) ?? [];
     raw.insert(0, jsonEncode(trip.toJson())); // newest first
     await prefs.setStringList(_tripsKey, raw);
+    // Cloud copy so trips survive reinstall / new phone (no-op offline).
+    final profile = await getProfile();
+    if (profile.phone.trim().isNotEmpty) {
+      FirebaseService().saveBooking(trip, profile.phone);
+    }
   }
 
   static Future<void> cancelTrip(String bookingRef) async {
@@ -159,6 +164,31 @@ class LocalStorageService {
       return jsonEncode(map);
     }).toList();
     await prefs.setStringList(_tripsKey, updated);
+    FirebaseService().updateBookingStatus(bookingRef, 'cancelled');
+  }
+
+  /// Pull this phone's cloud bookings into the local trips list (called once
+  /// at startup). Merge-only: local entries are never overwritten.
+  static Future<void> syncTripsFromCloud() async {
+    if (!FirebaseService.isInitialized) return;
+    final profile = await getProfile();
+    if (profile.phone.trim().isEmpty) return;
+    final cloud = await FirebaseService().fetchBookingsByPhone(profile.phone);
+    if (cloud.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_tripsKey) ?? [];
+    final localRefs = raw
+        .map((s) => (jsonDecode(s) as Map<String, dynamic>)['bookingRef'] as String?)
+        .whereType<String>()
+        .toSet();
+    var changed = false;
+    for (final t in cloud) {
+      if (!localRefs.contains(t.bookingRef)) {
+        raw.add(jsonEncode(t.toJson()));
+        changed = true;
+      }
+    }
+    if (changed) await prefs.setStringList(_tripsKey, raw);
   }
 
   static Future<void> reviewTrip(String bookingRef, double rating, List<String> flags) async {

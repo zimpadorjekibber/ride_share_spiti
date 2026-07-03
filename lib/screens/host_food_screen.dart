@@ -10,6 +10,7 @@ import '../widgets/photo_picker_field.dart';
 import 'food_requests_screen.dart';
 import 'manage_food_layout_screen.dart';
 import '../widgets/app_network_image.dart';
+import '../services/phone_utils.dart';
 
 class HostFoodScreen extends StatefulWidget {
   final VoidCallback onRegistered;
@@ -473,7 +474,7 @@ class _HostFoodScreenState extends State<HostFoodScreen> {
   // under each place. The + button (FAB) opens the registration form.
   // ─────────────────────────────────────────────────────────────────────────
   Widget _buildFoodDashboard(BuildContext context, FoodProvider provider, Color primaryText, Color? subText) {
-    final mine = provider.places.where((p) => p.phone.isNotEmpty && p.phone == _profile.phone).toList();
+    final mine = provider.places.where((p) => samePhone(p.phone, _profile.phone)).toList();
     final reqCount = provider.requests.length;
 
     return SingleChildScrollView(

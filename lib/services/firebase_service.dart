@@ -6,6 +6,8 @@ import '../models/ride_model.dart';
 import '../models/stay_model.dart';
 import '../models/food_model.dart';
 import '../models/review_model.dart';
+import '../models/booked_trip_model.dart';
+import 'phone_utils.dart';
 
 class FirebaseService {
   static bool _initialized = false;
@@ -266,6 +268,47 @@ class FirebaseService {
   Future<void> addFoodRequest(FoodRequest req) async {
     if (!_initialized) return;
     await firestore.collection('food_requests').doc(req.id).set(req.toMap());
+  }
+
+  // ── Bookings (cloud copy of My Trips, keyed by passenger phone) ──
+  // Trips were local-only: a reinstall or new phone lost every booking.
+  Future<void> saveBooking(BookedTrip trip, String passengerPhone) async {
+    if (!_initialized) return;
+    final key = normPhone(passengerPhone);
+    if (key.isEmpty) return;
+    try {
+      await firestore.collection('bookings').doc(trip.bookingRef).set(
+            trip.toJson()
+              ..['passengerPhone'] = key
+              ..['updatedAt'] = FieldValue.serverTimestamp(),
+          );
+    } catch (_) {
+      // Offline / rules issue — the local copy still works.
+    }
+  }
+
+  Future<void> updateBookingStatus(String bookingRef, String status) async {
+    if (!_initialized) return;
+    try {
+      await firestore.collection('bookings').doc(bookingRef).update({'status': status});
+    } catch (_) {
+      // Doc may not exist for old local-only trips — fine.
+    }
+  }
+
+  Future<List<BookedTrip>> fetchBookingsByPhone(String phone) async {
+    if (!_initialized) return [];
+    final key = normPhone(phone);
+    if (key.isEmpty) return [];
+    try {
+      final snap = await firestore
+          .collection('bookings')
+          .where('passengerPhone', isEqualTo: key)
+          .get();
+      return snap.docs.map((d) => BookedTrip.fromJson(d.data())).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   // ── Reviews ────────────────────────────────────────────

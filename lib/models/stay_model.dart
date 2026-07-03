@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/firebase_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/phone_utils.dart';
 
 /// Extra amenities a host can offer / a seeker can request (beyond the core
 /// Bukhari / Geyser / Food toggles).
@@ -470,7 +471,7 @@ class StayProvider extends ChangeNotifier {
   bool isDuplicate(String phone, String propertyType, String title) {
     final t = title.trim().toLowerCase();
     return _stays.any((s) =>
-        s.phone == phone && s.propertyType == propertyType && s.title.trim().toLowerCase() == t);
+        samePhone(s.phone, phone) && s.propertyType == propertyType && s.title.trim().toLowerCase() == t);
   }
 
   /// Quick one-tap toggle: mark a homestay Full / Available (no full edit).

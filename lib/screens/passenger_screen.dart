@@ -14,6 +14,7 @@ import '../models/booked_trip_model.dart';
 import '../services/proximity_service.dart';
 import 'post_request_screen.dart';
 import 'post_stay_request_screen.dart';
+import '../services/phone_utils.dart';
 
 class PassengerScreen extends StatefulWidget {
   const PassengerScreen({super.key});
@@ -282,7 +283,7 @@ class _PassengerScreenState extends State<PassengerScreen> {
     final activeRides = _userProfile.phone.isEmpty
         ? allActiveRides
         : [
-            ...allActiveRides.where((r) => r.phone == _userProfile.phone),
+            ...allActiveRides.where((r) => samePhone(r.phone, _userProfile.phone)),
             ...allActiveRides.where((r) => r.phone != _userProfile.phone),
           ];
 

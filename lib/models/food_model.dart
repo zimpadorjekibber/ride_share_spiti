@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/firebase_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/phone_utils.dart';
 
 const List<String> kFoodTypes = [
   'Restaurant',
@@ -511,7 +512,7 @@ class FoodProvider extends ChangeNotifier {
   bool isDuplicate(String phone, String foodType, String title) {
     final t = title.trim().toLowerCase();
     return _places.any((p) =>
-        p.phone == phone && p.foodType == foodType && p.title.trim().toLowerCase() == t);
+        samePhone(p.phone, phone) && p.foodType == foodType && p.title.trim().toLowerCase() == t);
   }
 
   /// Update an existing food place (host editing their own listing).

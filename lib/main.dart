@@ -20,14 +20,17 @@ import 'services/local_storage_service.dart';
 import 'models/passenger_request_model.dart';
 import 'models/stay_model.dart';
 import 'models/food_model.dart';
+import 'services/phone_utils.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await FirebaseService.initialize();
   await LocalStorageService.loadFlags(); // demo-seeding on/off
   VerifiedPhonesService.init(); // sync admin-verified phone numbers
-  // Pull any cloud reviews into the local cache (fire-and-forget, no-op offline).
+  // Pull cloud reviews & this phone's bookings into the local cache
+  // (fire-and-forget, no-op offline).
   LocalStorageService.syncReviewsFromCloud();
+  LocalStorageService.syncTripsFromCloud();
   runApp(
     MultiProvider(
       providers: [
@@ -141,9 +144,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final stayP = context.read<StayProvider>();
     final foodP = context.read<FoodProvider>();
     final passP = context.read<PassengerRequestProvider>();
-    final myStay = stayP.stayRequests.where((r) => r.phone == phone).toList();
-    final myFood = foodP.requests.where((r) => r.phone == phone).toList();
-    final myRide = passP.requests.where((r) => r.phone == phone).toList();
+    final myStay = stayP.stayRequests.where((r) => samePhone(r.phone, phone)).toList();
+    final myFood = foodP.requests.where((r) => samePhone(r.phone, phone)).toList();
+    final myRide = passP.requests.where((r) => samePhone(r.phone, phone)).toList();
     if (myStay.isEmpty && myFood.isEmpty && myRide.isEmpty) return;
 
     final lines = <String>[
