@@ -88,6 +88,19 @@ exports.onStayRequest = onDocumentCreated("stay_requests/{id}", async (event) =>
   );
 });
 
+// ── Lost & Found → notify everyone ──────────────────────────────────────
+exports.onLostFound = onDocumentCreated("lost_found/{id}", async (event) => {
+  const r = event.data.data();
+  if (!r) return;
+  const lost = (r.type || "lost") === "lost";
+  await send(
+    "all_users",
+    lost ? `🔍 LOST: ${r.title || "an item"}` : `🎒 FOUND: ${r.title || "an item"}`,
+    `${lost ? "Kho gaya" : "Mila hai"} — ${r.location || "Spiti"}${r.date ? ` (${r.date})` : ""}. ` +
+      `${lost ? "Dikhe to" : "Aapka hai to"} call karein: ${r.phone || "Spiti Setu app kholen"}`
+  );
+});
+
 exports.onFoodRequest = onDocumentCreated("food_requests/{id}", async (event) => {
   const r = event.data.data();
   if (!r) return;

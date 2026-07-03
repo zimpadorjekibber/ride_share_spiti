@@ -8,6 +8,7 @@ import '../models/stay_model.dart';
 import '../models/food_model.dart';
 import '../models/review_model.dart';
 import '../models/booked_trip_model.dart';
+import '../models/lost_found_model.dart';
 import 'phone_utils.dart';
 
 class FirebaseService {
@@ -351,6 +352,33 @@ class FirebaseService {
     } catch (_) {
       return [];
     }
+  }
+
+  // ── Lost & Found ───────────────────────────────────────
+  Stream<List<LostFoundItem>> streamLostFound() {
+    if (!_initialized) return const Stream.empty();
+    return firestore
+        .collection('lost_found')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((s) => s.docs
+            .map((d) => LostFoundItem.fromMap(d.id, d.data()))
+            .toList());
+  }
+
+  Future<void> addLostFound(LostFoundItem item) async {
+    if (!_initialized) return;
+    await ensureSignedIn();
+    await firestore
+        .collection('lost_found')
+        .doc(item.id)
+        .set(item.toMap()..['createdAt'] = FieldValue.serverTimestamp());
+  }
+
+  Future<void> setLostFoundResolved(String id, bool resolved) async {
+    if (!_initialized) return;
+    await ensureSignedIn();
+    await firestore.collection('lost_found').doc(id).update({'resolved': resolved});
   }
 
   // ── Reviews ────────────────────────────────────────────

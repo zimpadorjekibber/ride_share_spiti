@@ -21,6 +21,7 @@ import 'services/push_service.dart';
 import 'models/passenger_request_model.dart';
 import 'models/stay_model.dart';
 import 'models/food_model.dart';
+import 'models/lost_found_model.dart';
 import 'services/phone_utils.dart';
 
 void main() async {
@@ -41,6 +42,7 @@ void main() async {
         ChangeNotifierProvider(create: (context) => PassengerRequestProvider()),
         ChangeNotifierProvider(create: (context) => StayProvider()),
         ChangeNotifierProvider(create: (context) => FoodProvider()),
+        ChangeNotifierProvider(create: (context) => LostFoundProvider()),
       ],
       child: const MyApp(),
     ),

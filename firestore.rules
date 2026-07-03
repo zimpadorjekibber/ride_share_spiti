@@ -60,6 +60,13 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Lost & Found board — public to browse; app clients post, mark
+    // reunited, or remove their own posts.
+    match /lost_found/{id} {
+      allow read: if true;
+      allow create, update, delete: if signedIn();
+    }
+
     // Admin-verified phone numbers — written from the in-app admin console.
     match /verified_phones/{id} {
       allow read: if true;

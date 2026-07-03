@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'lost_found_screen.dart';
 
 class SosScreen extends StatefulWidget {
   const SosScreen({super.key});
@@ -289,6 +290,68 @@ class _SosScreenState extends State<SosScreen>
                         style: TextStyle(fontSize: 12)),
                   ),
                 ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // ── Lost & Found board ──
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const LostFoundScreen()),
+              ),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      const Color(0xFF8B5CF6).withValues(alpha: 0.15),
+                      const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: const Color(0xFF8B5CF6).withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF8B5CF6).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.travel_explore,
+                          color: Color(0xFF8B5CF6), size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Lost & Found 🎒',
+                            style: TextStyle(
+                                color: primaryText,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14.5),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Bag, camera ya purse khoya / mila? Photo ke saath post karo — sab users ko notification jayegi.',
+                            style: TextStyle(
+                                color: subText, fontSize: 11, height: 1.35),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.arrow_forward_ios,
+                        color: Color(0xFF8B5CF6), size: 15),
+                  ],
+                ),
               ),
             ),
 
