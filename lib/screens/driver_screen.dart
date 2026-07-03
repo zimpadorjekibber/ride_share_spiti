@@ -11,6 +11,7 @@ import '../models/stay_model.dart';
 import '../models/passenger_request_model.dart';
 import '../services/local_storage_service.dart';
 import '../services/storage_service.dart';
+import '../services/location_service.dart';
 import '../models/booked_trip_model.dart';
 import 'passenger_requests_screen.dart';
 import 'stay_requests_screen.dart';
@@ -88,6 +89,43 @@ class _DriverScreenState extends State<DriverScreen> {
   // Guards against double-submit: rapid taps during the slow photo upload
   // were creating multiple identical listings.
   bool _registering = false;
+
+  // True while waiting for a live GPS fix (spinner on the GPS buttons).
+  bool _acquiringGps = false;
+
+  /// Pin the map at the device's real GPS position. Falls back to Kaza Center
+  /// (with an honest message) when GPS is off / denied / times out.
+  Future<void> _useMyLocation() async {
+    if (_acquiringGps) return;
+    setState(() => _acquiringGps = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    final pos = await LocationService.getCurrentPosition();
+    if (!mounted) return;
+
+    final target = pos != null
+        ? LatLng(pos.latitude, pos.longitude)
+        : const LatLng(32.2276, 78.0710); // Kaza Center fallback
+    setState(() {
+      _acquiringGps = false;
+      _selectedLocation = target;
+    });
+    _mapController.move(target, 13.0);
+
+    messenger.showSnackBar(
+      pos != null
+          ? const SnackBar(
+              backgroundColor: Color(0xFF10B981),
+              content: Text("📍 Live GPS position set!",
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+            )
+          : const SnackBar(
+              backgroundColor: Color(0xFFF59E0B),
+              content: Text("GPS unavailable — pinned Kaza Center. Tap the map to adjust.",
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+            ),
+    );
+  }
 
   // Verification uploads (reused as Amenities checks in stay mode)
   bool _exteriorUploaded = false; // Bukhari
@@ -1509,19 +1547,14 @@ class _DriverScreenState extends State<DriverScreen> {
             mini: true,
             heroTag: "gps_fab",
             backgroundColor: themeColor,
-            onPressed: () {
-              setState(() {
-                _selectedLocation = LatLng(32.2276, 78.0710); // Kaza Center
-              });
-              _mapController.move(LatLng(32.2276, 78.0710), 12.0);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  backgroundColor: Color(0xFF10B981),
-                  content: Text("📍 GPS coordinates acquired successfully!", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                ),
-              );
-            },
-            child: const Icon(Icons.my_location, color: Colors.white),
+            onPressed: _useMyLocation,
+            child: _acquiringGps
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Icon(Icons.my_location, color: Colors.white),
           ),
         ),
       ],
@@ -1783,12 +1816,7 @@ class _DriverScreenState extends State<DriverScreen> {
                         ),
                         const SizedBox(height: 4),
                         GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _selectedLocation = LatLng(32.2276, 78.0710); // Kaza Center
-                            });
-                            _mapController.move(LatLng(32.2276, 78.0710), 12.0);
-                          },
+                          onTap: _useMyLocation,
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             width: double.infinity,
@@ -1800,7 +1828,11 @@ class _DriverScreenState extends State<DriverScreen> {
                               ),
                             ),
                             child: Text(
-                              _selectedLocation != null ? "📍 Position Set" : "⚠️ Tap here to Auto-GPS",
+                              _acquiringGps
+                                  ? "⏳ Getting GPS fix..."
+                                  : _selectedLocation != null
+                                      ? "📍 Position Set"
+                                      : "⚠️ Tap for My Location",
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
@@ -2114,12 +2146,7 @@ class _DriverScreenState extends State<DriverScreen> {
                         ),
                         const SizedBox(height: 4),
                         GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _selectedLocation = LatLng(32.2276, 78.0710); // Kaza Center
-                            });
-                            _mapController.move(LatLng(32.2276, 78.0710), 12.0);
-                          },
+                          onTap: _useMyLocation,
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             width: double.infinity,
@@ -2131,7 +2158,11 @@ class _DriverScreenState extends State<DriverScreen> {
                               ),
                             ),
                             child: Text(
-                              _selectedLocation != null ? "📍 Position Set" : "⚠️ Tap here to Auto-GPS",
+                              _acquiringGps
+                                  ? "⏳ Getting GPS fix..."
+                                  : _selectedLocation != null
+                                      ? "📍 Position Set"
+                                      : "⚠️ Tap for My Location",
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
