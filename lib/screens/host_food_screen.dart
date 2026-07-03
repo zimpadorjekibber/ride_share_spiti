@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/food_model.dart';
 import '../services/local_storage_service.dart';
 import '../services/storage_service.dart';
+import '../services/location_service.dart';
 import '../models/booked_trip_model.dart';
 import '../widgets/photo_picker_field.dart';
 import 'food_requests_screen.dart';
@@ -83,6 +84,45 @@ class _HostFoodScreenState extends State<HostFoodScreen> {
   void _addMenuRow() {
     _itemNames.add(TextEditingController());
     _itemPrices.add(TextEditingController());
+  }
+
+  bool _acquiringGps = false;
+
+  /// Pin the kitchen at the device's real GPS position; falls back to the
+  /// profile's saved coords (or Kaza Center) with an honest message.
+  Future<void> _useMyLocation() async {
+    if (_acquiringGps) return;
+    setState(() => _acquiringGps = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    final pos = await LocationService.getCurrentPosition();
+    if (!mounted) return;
+
+    setState(() {
+      _acquiringGps = false;
+      _locationSet = true;
+      if (pos != null) {
+        _lat = pos.latitude;
+        _lng = pos.longitude;
+      } else {
+        _lat = _profile.currentLat != 0.0 ? _profile.currentLat : 32.2276;
+        _lng = _profile.currentLng != 0.0 ? _profile.currentLng : 78.0710;
+      }
+    });
+
+    messenger.showSnackBar(
+      pos != null
+          ? const SnackBar(
+              backgroundColor: Color(0xFF10B981),
+              content: Text("📍 Live GPS position set!",
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+            )
+          : const SnackBar(
+              backgroundColor: Color(0xFFF59E0B),
+              content: Text("GPS unavailable — used your saved area (Kaza default).",
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+            ),
+    );
   }
 
   @override
@@ -351,11 +391,7 @@ class _HostFoodScreenState extends State<HostFoodScreen> {
             const Text("GPS LOCATION", style: TextStyle(color: Colors.grey, fontSize: 9, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             GestureDetector(
-              onTap: () => setState(() {
-                _locationSet = true;
-                _lat = _profile.currentLat != 0.0 ? _profile.currentLat : 32.2276;
-                _lng = _profile.currentLng != 0.0 ? _profile.currentLng : 78.0710;
-              }),
+              onTap: _useMyLocation,
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -365,7 +401,11 @@ class _HostFoodScreenState extends State<HostFoodScreen> {
                   border: Border.all(color: _locationSet ? const Color(0xFF10B981) : onSurface.withValues(alpha: 0.1)),
                 ),
                 child: Text(
-                  _locationSet ? "📍 Location Set" : "⚠️ Tap to set my GPS location",
+                  _acquiringGps
+                      ? "⏳ Getting GPS fix..."
+                      : _locationSet
+                          ? "📍 Location Set"
+                          : "⚠️ Tap to set my GPS location",
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _locationSet ? const Color(0xFF10B981) : Colors.grey),
                 ),
               ),

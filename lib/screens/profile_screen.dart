@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/booked_trip_model.dart';
 import '../services/local_storage_service.dart';
 import '../services/storage_service.dart';
+import '../services/location_service.dart';
 import 'admin_dashboard_screen.dart';
 import 'verification_screen.dart';
 
@@ -426,17 +427,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           value: _profile.locationPermissionGranted,
                           activeThumbColor: const Color(0xFF10B981),
                           onChanged: (val) async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            if (!val) {
+                              setState(() => _profile.locationPermissionGranted = false);
+                              await LocalStorageService.saveProfile(_profile);
+                              messenger.showSnackBar(
+                                const SnackBar(
+                                  content: Text("🔕 Location proximity alerts disabled."),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                              return;
+                            }
+                            // Really ask the OS for location & grab a fix —
+                            // proximity alerts are useless with a fake position.
+                            setState(() => _profile.locationPermissionGranted = true);
+                            final pos = await LocationService.getCurrentPosition();
+                            if (!mounted) return;
+                            if (pos == null) {
+                              setState(() => _profile.locationPermissionGranted = false);
+                              await LocalStorageService.saveProfile(_profile);
+                              messenger.showSnackBar(
+                                const SnackBar(
+                                  content: Text("Location permission/GPS unavailable — alerts stay off. Enable location in phone settings and try again."),
+                                  backgroundColor: Color(0xFFF59E0B),
+                                ),
+                              );
+                              return;
+                            }
                             setState(() {
-                              _profile.locationPermissionGranted = val;
+                              _profile.currentLat = pos.latitude;
+                              _profile.currentLng = pos.longitude;
                             });
                             await LocalStorageService.saveProfile(_profile);
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(val 
-                                    ? "📍 Location proximity alerts enabled successfully!" 
-                                    : "🔕 Location proximity alerts disabled."),
-                                backgroundColor: val ? const Color(0xFF10B981) : Colors.red,
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                content: Text("📍 Live location saved — proximity alerts enabled!"),
+                                backgroundColor: Color(0xFF10B981),
                               ),
                             );
                           },
