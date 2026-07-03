@@ -17,6 +17,17 @@ class SeatSelectorModal extends StatefulWidget {
 class _SeatSelectorModalState extends State<SeatSelectorModal> {
   final List<String> _selectedSeats = [];
 
+  /// Live copy of the ride from the provider — if someone else books a seat
+  /// while this modal is open, it turns red here immediately (instead of the
+  /// user finding out only when their own booking fails).
+  Ride get _ride {
+    final rides = context.watch<RideProvider>().allRides;
+    for (final r in rides) {
+      if (r.id == widget.ride.id) return r;
+    }
+    return widget.ride; // offline/demo fallback
+  }
+
   /// Booking needs the passenger's name & phone so the driver can contact
   /// them. If the profile is incomplete, ask once and save it for next time.
   /// Returns null if the user backed out.
@@ -113,7 +124,7 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
 
   // Helper to build a single clickable seat container
   Widget _buildSeatItem(String seatId) {
-    final isBooked = widget.ride.bookedSeats.contains(seatId);
+    final isBooked = _ride.bookedSeats.contains(seatId);
     final isSelected = _selectedSeats.contains(seatId);
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
@@ -389,6 +400,9 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
 
   @override
   Widget build(BuildContext context) {
+    // If a seat we selected was just booked by someone else, drop it from the
+    // selection so the total stays honest.
+    _selectedSeats.removeWhere(_ride.bookedSeats.contains);
     final double totalPrice = _selectedSeats.length * widget.ride.price;
 
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;

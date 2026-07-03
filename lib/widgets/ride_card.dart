@@ -8,6 +8,7 @@ import '../services/verified_phones_service.dart';
 import 'seat_selector.dart';
 import 'review_sheet.dart';
 import 'verified_badge.dart';
+import 'app_network_image.dart';
 
 class RideCard extends StatelessWidget {
   final Ride ride;
@@ -132,7 +133,7 @@ class RideCard extends StatelessWidget {
                   ? ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: ride.photoPath.startsWith('http')
-                          ? Image.network(ride.photoPath, width: 50, height: 50, fit: BoxFit.cover)
+                          ? AppNetworkImage(ride.photoPath, width: 50, height: 50)
                           : Image.file(
                               File(ride.photoPath),
                               width: 50,

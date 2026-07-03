@@ -18,6 +18,7 @@ import 'stay_requests_screen.dart';
 import 'manage_rooms_screen.dart';
 import '../widgets/photo_picker_field.dart';
 import '../widgets/place_autocomplete_field.dart';
+import '../widgets/app_network_image.dart';
 
 class DriverScreen extends StatefulWidget {
   final VoidCallback onRegistrationSuccess;
@@ -310,11 +311,11 @@ class _DriverScreenState extends State<DriverScreen> {
                     ),
                   ),
                   Text(
-                    isUploaded 
-                        ? "Active / Attached" 
+                    isUploaded
+                        ? "Active / Attached"
                         : (isLoading ? "Adding..." : "Tap to Toggle"),
                     style: TextStyle(
-                      fontSize: 8.5,
+                      fontSize: 9.5,
                       color: isUploaded ? successColor : Colors.grey,
                     ),
                   ),
@@ -711,8 +712,8 @@ class _DriverScreenState extends State<DriverScreen> {
               return GestureDetector(
                 onTap: () => _toggleRoomOccupied(stayProvider, s, i),
                 child: Container(
-                  width: 72,
-                  height: 62,
+                  width: 78,
+                  height: 68,
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   decoration: BoxDecoration(
                     color: c.withValues(alpha: 0.15),
@@ -725,9 +726,9 @@ class _DriverScreenState extends State<DriverScreen> {
                       Icon(r.occupied ? Icons.bed : Icons.bed_outlined, color: c, size: 18),
                       const SizedBox(height: 3),
                       Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: c, fontSize: 8.5, height: 1.1, fontWeight: FontWeight.bold)),
+                          style: TextStyle(color: c, fontSize: 10.5, height: 1.1, fontWeight: FontWeight.bold)),
                       Text(r.occupied ? "BUSY" : "FREE",
-                          style: TextStyle(color: c, fontSize: 7.5, height: 1.1, fontWeight: FontWeight.w900)),
+                          style: TextStyle(color: c, fontSize: 9, height: 1.2, fontWeight: FontWeight.w900)),
                     ],
                   ),
                 ),
@@ -769,7 +770,7 @@ class _DriverScreenState extends State<DriverScreen> {
                 border: Border.all(color: themeColor.withValues(alpha: 0.3)),
               ),
               child: isUrl
-                  ? Image.network(path, fit: BoxFit.cover)
+                  ? AppNetworkImage(path)
                   : hasLocal
                       ? Image.file(File(path), fit: BoxFit.cover)
                       : Column(
@@ -1162,8 +1163,8 @@ class _DriverScreenState extends State<DriverScreen> {
               return GestureDetector(
                 onTap: () => _openSeatSheet(context, rideProvider, r, seatNum),
                 child: Container(
-                  width: 52,
-                  height: 50,
+                  width: 56,
+                  height: 54,
                   decoration: BoxDecoration(
                     color: c.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(10),
@@ -1175,7 +1176,7 @@ class _DriverScreenState extends State<DriverScreen> {
                       Icon(booked ? Icons.event_seat : Icons.event_seat_outlined, color: c, size: 18),
                       const SizedBox(height: 1),
                       Text("S$seatNum",
-                          style: TextStyle(color: c, fontSize: 8.5, height: 1.1, fontWeight: FontWeight.bold)),
+                          style: TextStyle(color: c, fontSize: 10.5, height: 1.1, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),

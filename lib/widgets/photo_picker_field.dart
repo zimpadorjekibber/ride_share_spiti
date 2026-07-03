@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'app_network_image.dart';
 
 /// Pick up to [max] photos (camera or gallery), shown as a thumbnail strip with
 /// remove buttons. Reports the current list (local paths and/or existing URLs).
@@ -71,7 +72,7 @@ class MultiPhotoPickerField extends StatelessWidget {
         ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: isUrl
-              ? Image.network(p, width: 90, height: 90, fit: BoxFit.cover)
+              ? AppNetworkImage(p, width: 90, height: 90)
               : Image.file(File(p), width: 90, height: 90, fit: BoxFit.cover),
         ),
         Positioned(

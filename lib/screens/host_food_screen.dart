@@ -9,6 +9,7 @@ import '../models/booked_trip_model.dart';
 import '../widgets/photo_picker_field.dart';
 import 'food_requests_screen.dart';
 import 'manage_food_layout_screen.dart';
+import '../widgets/app_network_image.dart';
 
 class HostFoodScreen extends StatefulWidget {
   final VoidCallback onRegistered;
@@ -599,7 +600,7 @@ class _HostFoodScreenState extends State<HostFoodScreen> {
     final photo = p.allPhotos.isNotEmpty ? p.allPhotos.first : '';
     Widget thumb;
     if (photo.startsWith('http')) {
-      thumb = Image.network(photo, width: 44, height: 44, fit: BoxFit.cover);
+      thumb = AppNetworkImage(photo, width: 44, height: 44);
     } else if (photo.isNotEmpty && File(photo).existsSync()) {
       thumb = Image.file(File(photo), width: 44, height: 44, fit: BoxFit.cover);
     } else {

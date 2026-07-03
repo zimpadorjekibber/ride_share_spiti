@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'services/firebase_service.dart';
 import 'services/verified_phones_service.dart';
 import 'models/ride_model.dart';
@@ -85,11 +87,40 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentTab = 0;
   int _unreadCount = 0;
 
+  // Spiti networks drop constantly — show an honest strip when offline so
+  // users know they're looking at Firestore's cached data.
+  bool _isOffline = false;
+  StreamSubscription<List<ConnectivityResult>>? _connSub;
+
   @override
   void initState() {
     super.initState();
     _loadUnreadCount();
     _checkMyActiveRequests();
+    _watchConnectivity();
+  }
+
+  void _watchConnectivity() async {
+    try {
+      final initial = await Connectivity().checkConnectivity();
+      if (mounted) {
+        setState(() => _isOffline = initial.every((r) => r == ConnectivityResult.none));
+      }
+      _connSub = Connectivity().onConnectivityChanged.listen((results) {
+        final offline = results.every((r) => r == ConnectivityResult.none);
+        if (mounted && offline != _isOffline) {
+          setState(() => _isOffline = offline);
+        }
+      });
+    } catch (_) {
+      // Plugin unavailable (e.g. fresh hot-reload) — just skip the banner.
+    }
+  }
+
+  @override
+  void dispose() {
+    _connSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadUnreadCount() async {
@@ -411,7 +442,31 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             ),
         ],
       ),
-      body: screens[_currentTab],
+      body: Column(
+        children: [
+          if (_isOffline)
+            Container(
+              width: double.infinity,
+              color: const Color(0xFFF59E0B),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.wifi_off_rounded, size: 13, color: Colors.white),
+                  SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      "Offline — dikha raha hoon last synced data. Changes will sync when back online.",
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(child: screens[_currentTab]),
+        ],
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF090D16) : Colors.white,

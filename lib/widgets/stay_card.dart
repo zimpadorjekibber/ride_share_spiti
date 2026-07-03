@@ -6,6 +6,7 @@ import '../services/proximity_service.dart';
 import '../services/verified_phones_service.dart';
 import 'review_sheet.dart';
 import 'verified_badge.dart';
+import 'app_network_image.dart';
 
 class StayCard extends StatelessWidget {
   final Stay stay;
@@ -81,7 +82,7 @@ class StayCard extends StatelessWidget {
               children: [
                 hasUploadedPhoto
                     ? (isPhotoUrl
-                        ? Image.network(stay.photoPath, height: 140, width: double.infinity, fit: BoxFit.cover)
+                        ? AppNetworkImage(stay.photoPath, height: 140, width: double.infinity)
                         : Image.file(
                             File(stay.photoPath),
                             height: 140,
@@ -539,7 +540,7 @@ class StayCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                   child: hasPhoto
                       ? (isUrl
-                          ? Image.network(r.photoPath, width: 120, height: 60, fit: BoxFit.cover)
+                          ? AppNetworkImage(r.photoPath, width: 120, height: 60)
                           : Image.file(File(r.photoPath), width: 120, height: 60, fit: BoxFit.cover))
                       : Container(
                           width: 120, height: 60,
@@ -579,7 +580,7 @@ class StayCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: isUrl
-                ? Image.network(path, width: 120, height: 64, fit: BoxFit.cover)
+                ? AppNetworkImage(path, width: 120, height: 64)
                 : hasLocal
                     ? Image.file(File(path), width: 120, height: 64, fit: BoxFit.cover)
                     : Container(
