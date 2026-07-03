@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../firebase_options.dart';
 import '../models/ride_model.dart';
@@ -23,10 +24,37 @@ class FirebaseService {
         cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
       );
       _initialized = true;
+      // Security rules require an authenticated caller for all writes; sign in
+      // anonymously so the app works without a user-facing login. Bounded so a
+      // dead network never delays startup; retried lazily by ensureSignedIn.
+      try {
+        if (FirebaseAuth.instance.currentUser == null) {
+          await FirebaseAuth.instance
+              .signInAnonymously()
+              .timeout(const Duration(seconds: 8));
+        }
+      } catch (e) {
+        debugPrint("Anonymous sign-in failed (will retry on first write): $e");
+      }
       debugPrint("Firebase successfully initialized with offline persistence enabled!");
     } catch (e) {
       debugPrint("Firebase initialization failed (probably missing google-services.json): $e");
       _initialized = false;
+    }
+  }
+
+  /// Lazily retry anonymous sign-in (e.g. the app started offline and the
+  /// startup attempt failed). Cheap no-op when already signed in.
+  static Future<void> ensureSignedIn() async {
+    if (!_initialized) return;
+    try {
+      if (FirebaseAuth.instance.currentUser == null) {
+        await FirebaseAuth.instance
+            .signInAnonymously()
+            .timeout(const Duration(seconds: 8));
+      }
+    } catch (_) {
+      // Still offline — the write itself will queue/fail gracefully.
     }
   }
 
@@ -83,6 +111,7 @@ class FirebaseService {
   // Add new ride to Firestore
   Future<void> addRide(Ride ride) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     await firestore.collection('rides').doc(ride.id).set({
       'driverName': ride.driverName,
       'phone': ride.phone,
@@ -110,6 +139,7 @@ class FirebaseService {
   Future<void> bookSeats(String rideId, List<String> seatIds,
       {String name = '', String phone = '', bool byDriver = false}) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     final docRef = firestore.collection('rides').doc(rideId);
 
     await firestore.runTransaction((transaction) async {
@@ -139,6 +169,7 @@ class FirebaseService {
   // without overwriting the whole document (safe against concurrent bookings).
   Future<void> unbookSeats(String rideId, List<String> seatIds) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     final docRef = firestore.collection('rides').doc(rideId);
 
     await firestore.runTransaction((transaction) async {
@@ -175,6 +206,7 @@ class FirebaseService {
 
   Future<void> addPassengerRequest(dynamic request) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     await firestore
         .collection('passenger_requests')
         .doc(request.id)
@@ -183,6 +215,7 @@ class FirebaseService {
 
   Future<void> cancelPassengerRequest(String id) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     await firestore
         .collection('passenger_requests')
         .doc(id)
@@ -204,11 +237,13 @@ class FirebaseService {
 
   Future<void> addStay(Stay stay) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     await firestore.collection('stays').doc(stay.id).set(stay.toMap()..['createdAt'] = FieldValue.serverTimestamp());
   }
 
   Future<void> deleteStay(String id) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     await firestore.collection('stays').doc(id).delete();
   }
 
@@ -228,11 +263,13 @@ class FirebaseService {
 
   Future<void> addStayRequest(StayRequest req) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     await firestore.collection('stay_requests').doc(req.id).set(req.toMap());
   }
 
   Future<void> deleteDoc(String collection, String id) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     await firestore.collection(collection).doc(id).delete();
   }
 
@@ -247,11 +284,13 @@ class FirebaseService {
 
   Future<void> addFoodPlace(FoodPlace place) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     await firestore.collection('food_places').doc(place.id).set(place.toMap()..['createdAt'] = FieldValue.serverTimestamp());
   }
 
   Future<void> deleteFoodPlace(String id) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     await firestore.collection('food_places').doc(id).delete();
   }
 
@@ -267,6 +306,7 @@ class FirebaseService {
 
   Future<void> addFoodRequest(FoodRequest req) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     await firestore.collection('food_requests').doc(req.id).set(req.toMap());
   }
 
@@ -274,6 +314,7 @@ class FirebaseService {
   // Trips were local-only: a reinstall or new phone lost every booking.
   Future<void> saveBooking(BookedTrip trip, String passengerPhone) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     final key = normPhone(passengerPhone);
     if (key.isEmpty) return;
     try {
@@ -289,6 +330,7 @@ class FirebaseService {
 
   Future<void> updateBookingStatus(String bookingRef, String status) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     try {
       await firestore.collection('bookings').doc(bookingRef).update({'status': status});
     } catch (_) {
@@ -314,6 +356,7 @@ class FirebaseService {
   // ── Reviews ────────────────────────────────────────────
   Future<void> addReview(Review review) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     await firestore.collection('reviews').doc(review.id).set(review.toJson());
   }
 
@@ -337,6 +380,7 @@ class FirebaseService {
 
   Future<void> addVerifiedPhone(String phone, String name) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     final id = phone.replaceAll(RegExp(r'\D'), '');
     if (id.isEmpty) return;
     await firestore.collection('verified_phones').doc(id).set({
@@ -349,6 +393,7 @@ class FirebaseService {
 
   Future<void> removeVerifiedPhone(String phone) async {
     if (!_initialized) return;
+    await ensureSignedIn();
     final id = phone.replaceAll(RegExp(r'\D'), '');
     if (id.isEmpty) return;
     await firestore.collection('verified_phones').doc(id).delete();

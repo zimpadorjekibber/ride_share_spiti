@@ -1,12 +1,74 @@
 rules_version = '2';
 
-// ⚠️ PROTOTYPE / TESTING RULES — open access so the app works during testing.
-// Before going to production, lock these down (e.g. require request.auth != null
-// and validate fields per collection).
+// Spiti Setu — Firestore security rules.
+//
+// The app signs every client in anonymously at startup (see
+// FirebaseService.initialize), so requiring `request.auth != null` for writes
+// blocks drive-by REST abuse (bots / curl scripts hitting the public API key)
+// while the app itself keeps working without a user-facing login.
+//
+// Known limitation (MVP): there is no per-user ownership model yet — any
+// signed-in app instance can edit/delete listings, because drivers/hosts are
+// identified by phone number, not by auth uid. Tightening this needs
+// account-based auth in the app first.
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Public marketplace data: anyone can browse, only app clients can write.
+    match /rides/{id} {
+      allow read: if true;
+      allow create, update, delete: if signedIn();
+    }
+    match /stays/{id} {
+      allow read: if true;
+      allow create, update, delete: if signedIn();
+    }
+    match /food_places/{id} {
+      allow read: if true;
+      allow create, update, delete: if signedIn();
+    }
+
+    // Broadcast requests (seekers looking for a ride / room / food).
+    match /passenger_requests/{id} {
+      allow read: if true;
+      allow create, update, delete: if signedIn();
+    }
+    match /stay_requests/{id} {
+      allow read: if true;
+      allow create, update, delete: if signedIn();
+    }
+    match /food_requests/{id} {
+      allow read: if true;
+      allow create, update, delete: if signedIn();
+    }
+
+    // Reviews are public; once posted they cannot be edited or deleted.
+    match /reviews/{id} {
+      allow read: if true;
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    // Cloud copies of passenger bookings (keyed by booking ref).
+    match /bookings/{id} {
+      allow read: if true;
+      allow create, update: if signedIn();
+      allow delete: if false;
+    }
+
+    // Admin-verified phone numbers — written from the in-app admin console.
+    match /verified_phones/{id} {
+      allow read: if true;
+      allow create, update, delete: if signedIn();
+    }
+
+    // Anything not listed above is locked.
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

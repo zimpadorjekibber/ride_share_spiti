@@ -180,8 +180,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
     profile.phone = _phoneController.text.trim();
     profile.email = _emailController.text.trim();
     profile.isRegistered = true;
-    profile.phoneVerified = true;
-    profile.emailVerified = true;
+    // Only a REAL SMS OTP proves the phone. The simulated fallback (code shown
+    // on screen) registers the user but does NOT mark them verified — locals
+    // without SMS coverage get their badge via the admin's verified-phones
+    // list instead. Email OTP is always simulated, so it never verifies.
+    profile.phoneVerified = _realPhone;
+    profile.emailVerified = false;
     await LocalStorageService.saveProfile(profile);
 
     if (!mounted) return;
