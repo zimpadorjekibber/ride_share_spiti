@@ -26,6 +26,7 @@ class _PassengerScreenState extends State<PassengerScreen> {
   final TextEditingController _fromController = TextEditingController();
   final TextEditingController _toController = TextEditingController();
   String _selectedType = "all";
+  String _selectedDate = ""; // 'YYYY-MM-DD'; empty = any date
   RangeValues _budgetRange = const RangeValues(500.0, 5000.0);
   final MapController _mapController = MapController();
   UserProfile _userProfile = UserProfile();
@@ -100,7 +101,47 @@ class _PassengerScreenState extends State<PassengerScreen> {
       _fromController.text,
       _toController.text,
       _selectedType,
+      date: _selectedDate,
     );
+  }
+
+  // ── Date filter helpers ─────────────────────────────────
+  static String _fmt(DateTime d) => d.toString().split(' ')[0]; // YYYY-MM-DD
+
+  String get _todayStr => _fmt(DateTime.now());
+  String get _tomorrowStr => _fmt(DateTime.now().add(const Duration(days: 1)));
+
+  /// Short human label for a custom-picked date, e.g. "12 Jul".
+  String _shortDate(String ymd) {
+    final d = DateTime.tryParse(ymd);
+    if (d == null) return ymd;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${d.day} ${months[d.month - 1]}';
+  }
+
+  void _setDateFilter(String value) {
+    setState(() => _selectedDate = value);
+    _applyFilters();
+  }
+
+  Future<void> _pickCustomDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.tryParse(_selectedDate) ?? now,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 90)),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: Theme.of(ctx).colorScheme.copyWith(
+                primary: const Color(0xFF6366F1),
+              ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) _setDateFilter(_fmt(picked));
   }
 
   /// Returns a hint if this ride matched as an "along the way" ride (passes
@@ -120,9 +161,80 @@ class _PassengerScreenState extends State<PassengerScreen> {
     _toController.clear();
     setState(() {
       _selectedType = "all";
+      _selectedDate = "";
       _budgetRange = const RangeValues(500.0, 5000.0);
     });
     _applyFilters();
+  }
+
+  /// One tappable date-filter chip (indigo when selected).
+  Widget _dateChip(String label, String value) {
+    const indigo = Color(0xFF6366F1);
+    final selected = _selectedDate == value;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        _setDateFilter(value);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? indigo : indigo.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? indigo : onSurface.withValues(alpha: 0.12),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: selected ? Colors.white : onSurface.withValues(alpha: 0.65),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// "Pick date" chip — shows the chosen custom date once one is picked.
+  Widget _customDateChip() {
+    const indigo = Color(0xFF6366F1);
+    final isCustom = _selectedDate.isNotEmpty &&
+        _selectedDate != _todayStr &&
+        _selectedDate != _tomorrowStr;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return GestureDetector(
+      onTap: _pickCustomDate,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isCustom ? indigo : indigo.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isCustom ? indigo : onSurface.withValues(alpha: 0.12),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.calendar_month, size: 13,
+                color: isCustom ? Colors.white : onSurface.withValues(alpha: 0.65)),
+            const SizedBox(width: 4),
+            Text(
+              isCustom ? _shortDate(_selectedDate) : "Pick Date",
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: isCustom ? Colors.white : onSurface.withValues(alpha: 0.65),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// Friendly empty state with an icon and a one-tap "Reset Filters" action.
@@ -409,6 +521,23 @@ class _PassengerScreenState extends State<PassengerScreen> {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Departure-date filter chips
+                    SizedBox(
+                      height: 32,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          _dateChip("Any Date", ""),
+                          const SizedBox(width: 6),
+                          _dateChip("Aaj (Today)", _todayStr),
+                          const SizedBox(width: 6),
+                          _dateChip("Kal (Tomorrow)", _tomorrowStr),
+                          const SizedBox(width: 6),
+                          _customDateChip(),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Row(

@@ -323,6 +323,7 @@ class RideProvider extends ChangeNotifier {
   String _searchFrom = "";
   String _searchTo = "";
   String _filterVehicleType = "all";
+  String _searchDate = ""; // 'YYYY-MM-DD'; empty = any date
 
   /// Unfiltered list — used by the driver's own "My Rides" dashboard so that
   /// search filters on the Find Rides screen never hide their listings.
@@ -334,6 +335,9 @@ class RideProvider extends ChangeNotifier {
     return _rides.where((ride) {
       if (ride.isExpired) return false; // safety net for offline/demo lists
       if (_filterVehicleType != "all" && ride.vehicleType.name != _filterVehicleType) {
+        return false;
+      }
+      if (_searchDate.isNotEmpty && ride.date.trim() != _searchDate) {
         return false;
       }
       if (from.isEmpty && to.isEmpty) return true;
@@ -348,10 +352,11 @@ class RideProvider extends ChangeNotifier {
     }).toList();
   }
 
-  void setFilters(String from, String to, String vehicleType) {
+  void setFilters(String from, String to, String vehicleType, {String date = ""}) {
     _searchFrom = from;
     _searchTo = to;
     _filterVehicleType = vehicleType;
+    _searchDate = date;
     notifyListeners();
   }
 
@@ -359,6 +364,7 @@ class RideProvider extends ChangeNotifier {
     _searchFrom = "";
     _searchTo = "";
     _filterVehicleType = "all";
+    _searchDate = "";
     notifyListeners();
   }
 
