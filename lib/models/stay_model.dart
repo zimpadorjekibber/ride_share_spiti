@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/firebase_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/phone_utils.dart';
+import '../services/push_service.dart';
 
 /// Extra amenities a host can offer / a seeker can request (beyond the core
 /// Bukhari / Geyser / Food toggles).
@@ -447,6 +448,9 @@ class StayProvider extends ChangeNotifier {
       _stays.insert(0, newStay);
       notifyListeners();
     }
+    // Host now gets pushes for new room-seeker broadcasts.
+    PushService.subscribeForPhone(newStay.phone);
+    PushService.subscribeProviders('stay');
   }
 
   void postStayRequest(StayRequest req) async {

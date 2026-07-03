@@ -17,6 +17,7 @@ import 'screens/sos_screen.dart';
 import 'screens/food_finder_screen.dart';
 import 'screens/host_food_screen.dart';
 import 'services/local_storage_service.dart';
+import 'services/push_service.dart';
 import 'models/passenger_request_model.dart';
 import 'models/stay_model.dart';
 import 'models/food_model.dart';
@@ -31,6 +32,8 @@ void main() async {
   // (fire-and-forget, no-op offline).
   LocalStorageService.syncReviewsFromCloud();
   LocalStorageService.syncTripsFromCloud();
+  // Push notifications: permission + topic subscriptions (fire-and-forget).
+  PushService.init();
   runApp(
     MultiProvider(
       providers: [

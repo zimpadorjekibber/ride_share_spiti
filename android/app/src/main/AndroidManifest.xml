@@ -2,6 +2,8 @@
     <!-- Live GPS pin for drivers/hosts (geolocator) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- Push notifications (FCM) on Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="Spiti Setu"
         android:name="${applicationName}"

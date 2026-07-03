@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/firebase_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/push_service.dart';
 import '../services/spiti_routes.dart';
 
 enum VehicleType { taxi, tempo, private, suv, bus, bike }
@@ -392,6 +393,9 @@ class RideProvider extends ChangeNotifier {
       _rides.insert(0, newRide);
       notifyListeners();
     }
+    // Driver now gets pushes: personal booking alerts + new passenger requests.
+    PushService.subscribeForPhone(newRide.phone);
+    PushService.subscribeProviders('ride');
   }
 
   /// Update an existing ride (driver editing / managing their own ride).

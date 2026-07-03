@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/firebase_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/phone_utils.dart';
+import '../services/push_service.dart';
 
 const List<String> kFoodTypes = [
   'Restaurant',
@@ -449,6 +450,9 @@ class FoodProvider extends ChangeNotifier {
       _places.insert(0, place);
       notifyListeners();
     }
+    // Cook now gets pushes for new food-seeker broadcasts.
+    PushService.subscribeForPhone(place.phone);
+    PushService.subscribeProviders('food');
   }
 
   void postFoodRequest(FoodRequest req) async {
