@@ -100,6 +100,7 @@ class FoodPlace {
   final int mockPhotoIndex;
   final String photoPath; // legacy single photo (kept for backward compat)
   final List<String> photos; // up to 10 photos (URLs or local paths)
+  final List<String> seatingPhotos; // seating-area / table-view photos (shown in Table Layout)
   final List<MenuItem> menu; // per-item menu with individual prices
   final String menuLink; // QR menu / website / Google Maps link
   final List<String> facilities; // WiFi, Seating, Parking, etc.
@@ -127,6 +128,7 @@ class FoodPlace {
     this.mockPhotoIndex = 0,
     this.photoPath = '',
     this.photos = const [],
+    this.seatingPhotos = const [],
     this.menu = const [],
     this.menuLink = '',
     this.facilities = const [],
@@ -150,6 +152,7 @@ class FoodPlace {
         cookOnRequest: cookOnRequest, offMarket: offMarket, lat: lat, lng: lng,
         rating: rating ?? this.rating, safetyFlags: safetyFlags ?? this.safetyFlags,
         mockPhotoIndex: mockPhotoIndex, photoPath: photoPath, photos: photos,
+        seatingPhotos: seatingPhotos,
         menu: menu ?? this.menu, menuLink: menuLink, facilities: facilities,
         tables: tables ?? this.tables,
       );
@@ -188,6 +191,7 @@ class FoodPlace {
         'mockPhotoIndex': mockPhotoIndex,
         'photoPath': photoPath,
         'photos': photos,
+        'seatingPhotos': seatingPhotos,
         'menu': menu.map((m) => m.toMap()).toList(),
         'menuLink': menuLink,
         'facilities': facilities,
@@ -216,6 +220,7 @@ class FoodPlace {
         mockPhotoIndex: map['mockPhotoIndex'] ?? 0,
         photoPath: map['photoPath'] ?? '',
         photos: List<String>.from(map['photos'] ?? const []),
+        seatingPhotos: List<String>.from(map['seatingPhotos'] ?? const []),
         menu: ((map['menu'] ?? const []) as List)
             .map((e) => MenuItem.fromMap(Map<String, dynamic>.from(e)))
             .toList(),
@@ -482,6 +487,7 @@ class FoodProvider extends ChangeNotifier {
           mockPhotoIndex: p.mockPhotoIndex,
           photoPath: p.photoPath,
           photos: p.photos,
+          seatingPhotos: p.seatingPhotos,
           menu: p.menu,
           menuLink: p.menuLink,
           facilities: p.facilities,

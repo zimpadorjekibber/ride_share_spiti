@@ -173,6 +173,7 @@ class _HostFoodScreenState extends State<HostFoodScreen> {
       safetyFlags: e?.safetyFlags ?? const [],
       mockPhotoIndex: e?.mockPhotoIndex ?? (DateTime.now().millisecondsSinceEpoch % 4),
       photos: photoUrls,
+      seatingPhotos: e?.seatingPhotos ?? const [], // managed in the table-layout screen
       menu: menu,
       menuLink: _menuLinkController.text.trim(),
       facilities: _facilities.toList(),
@@ -719,6 +720,12 @@ class _HostFoodScreenState extends State<HostFoodScreen> {
           const SizedBox(height: 8),
           Text("🟢 free · 🔴 busy — tap a table to change",
               style: TextStyle(color: subText, fontSize: 10.5)),
+          if (p.seatingPhotos.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text("Seating area", style: TextStyle(color: subText, fontSize: 10, letterSpacing: 0.4, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            SeatingPhotoStrip(photos: p.seatingPhotos, height: 76),
+          ],
         ],
       ),
     );

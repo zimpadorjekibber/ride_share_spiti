@@ -25,7 +25,7 @@ class _PassengerScreenState extends State<PassengerScreen> {
   final TextEditingController _fromController = TextEditingController();
   final TextEditingController _toController = TextEditingController();
   String _selectedType = "all";
-  double _budgetFilter = 5000.0;
+  RangeValues _budgetRange = const RangeValues(500.0, 5000.0);
   final MapController _mapController = MapController();
   UserProfile _userProfile = UserProfile();
 
@@ -119,9 +119,38 @@ class _PassengerScreenState extends State<PassengerScreen> {
     _toController.clear();
     setState(() {
       _selectedType = "all";
-      _budgetFilter = 5000.0;
+      _budgetRange = const RangeValues(500.0, 5000.0);
     });
     _applyFilters();
+  }
+
+  /// Friendly empty state with an icon and a one-tap "Reset Filters" action.
+  Widget _emptyState({required IconData icon, required String title, required String subtitle}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: Colors.grey.withValues(alpha: 0.5)),
+            const SizedBox(height: 12),
+            Text(title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.grey)),
+            const SizedBox(height: 4),
+            Text(subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: Colors.grey.withValues(alpha: 0.8))),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _resetFilters,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text("Reset Filters"),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _focusOnLocation(double lat, double lng) {
@@ -150,12 +179,15 @@ class _PassengerScreenState extends State<PassengerScreen> {
       final matchesSearch = stay.title.toLowerCase().contains(query) ||
           stay.description.toLowerCase().contains(query) ||
           stay.hostName.toLowerCase().contains(query);
-      final matchesBudget = stay.pricePerNight <= _budgetFilter;
+      final matchesBudget = stay.pricePerNight >= _budgetRange.start &&
+          stay.pricePerNight <= _budgetRange.end;
       return matchesSearch && matchesBudget;
     }).toList();
 
-    final width = MediaQuery.of(context).size.width;
-    final isMobile = width < 750;
+    final size = MediaQuery.of(context).size;
+    // Short screens (phone landscape) must also use the scrollable single-column
+    // layout — the side-by-side desktop layout needs vertical room and overflows.
+    final isMobile = size.width < 750 || size.height < 600;
 
     final scaffoldBg = isDarkMode ? const Color(0xFF090D16) : const Color(0xFFF8FAFC);
     final cardBgColor = isDarkMode ? const Color(0xFF111827) : Colors.white;
@@ -288,7 +320,11 @@ class _PassengerScreenState extends State<PassengerScreen> {
     // Built content helper to handle scrollable lists on mobile vs fixed lists on desktop
     Widget buildSearchListContent(bool useScrollableList) {
       return Padding(
-        padding: EdgeInsets.all(isMobile ? 16.0 : 24.0),
+        // Extra bottom padding so the "Broadcast Need" FAB never covers the
+        // last card in the list.
+        padding: isMobile
+            ? const EdgeInsets.fromLTRB(16, 16, 16, 96)
+            : const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -336,7 +372,19 @@ class _PassengerScreenState extends State<PassengerScreen> {
                             onChanged: (_) => _applyFilters(),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        // Swap From ↔ To (quick return-journey search)
+                        IconButton(
+                          tooltip: "Swap From/To",
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.swap_horiz, size: 20, color: Color(0xFF6366F1)),
+                          onPressed: () {
+                            HapticFeedback.selectionClick();
+                            final tmp = _fromController.text;
+                            _fromController.text = _toController.text;
+                            _toController.text = tmp;
+                            _applyFilters();
+                          },
+                        ),
                         Expanded(
                           child: TextField(
                             controller: _toController,
@@ -448,18 +496,22 @@ class _PassengerScreenState extends State<PassengerScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const Text("Max Price/Night", style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
-                                  Text("₹${_budgetFilter.toInt()}", style: const TextStyle(fontSize: 11, color: Color(0xFF0D9488), fontWeight: FontWeight.bold)),
+                                  const Text("Price/Night Range", style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                  Text("₹${_budgetRange.start.toInt()} - ₹${_budgetRange.end.toInt()}", style: const TextStyle(fontSize: 11, color: Color(0xFF0D9488), fontWeight: FontWeight.bold)),
                                 ],
                               ),
-                              Slider(
-                                value: _budgetFilter,
+                              RangeSlider(
+                                values: _budgetRange,
                                 min: 500.0,
                                 max: 5000.0,
                                 divisions: 18,
                                 activeColor: const Color(0xFF0D9488),
                                 inactiveColor: isDarkMode ? Colors.white10 : Colors.black12,
-                                onChanged: (val) => setState(() => _budgetFilter = val),
+                                labels: RangeLabels(
+                                  '₹${_budgetRange.start.toInt()}',
+                                  '₹${_budgetRange.end.toInt()}',
+                                ),
+                                onChanged: (val) => setState(() => _budgetRange = val),
                               ),
                             ],
                           ),
@@ -674,9 +726,10 @@ class _PassengerScreenState extends State<PassengerScreen> {
             useScrollableList
                 ? (rideProvider.appMode == AppMode.ride
                     ? (activeRides.isEmpty
-                        ? const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 32),
-                            child: Center(child: Text("No Rides Active.\nTry resetting filters!", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey))),
+                        ? _emptyState(
+                            icon: Icons.directions_car_outlined,
+                            title: "No Rides Active",
+                            subtitle: "Koi ride nahi mili — filters reset karke dekhein,\nya 'Broadcast Need' se drivers ko batayein.",
                           )
                         : ListView.builder(
                             shrinkWrap: true,
@@ -693,9 +746,10 @@ class _PassengerScreenState extends State<PassengerScreen> {
                             },
                           ))
                     : (activeStays.isEmpty
-                        ? const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 32),
-                            child: Center(child: Text("No Homestays found.\nTry adjusting budget/search!", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey))),
+                        ? _emptyState(
+                            icon: Icons.cottage_outlined,
+                            title: "No Homestays Found",
+                            subtitle: "Budget badha kar ya search badal kar dekhein.",
                           )
                         : ListView.builder(
                             shrinkWrap: true,
@@ -724,8 +778,15 @@ class _PassengerScreenState extends State<PassengerScreen> {
                 : Expanded(
                     child: rideProvider.appMode == AppMode.ride
                         ? (activeRides.isEmpty
-                            ? const Center(child: Text("No Rides Active.\nTry resetting filters!", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)))
+                            ? Center(
+                                child: _emptyState(
+                                  icon: Icons.directions_car_outlined,
+                                  title: "No Rides Active",
+                                  subtitle: "Koi ride nahi mili — filters reset karke dekhein,\nya 'Broadcast Need' se drivers ko batayein.",
+                                ),
+                              )
                             : ListView.builder(
+                                padding: const EdgeInsets.only(bottom: 90),
                                 itemCount: activeRides.length,
                                 itemBuilder: (context, index) {
                                   final ride = activeRides[index];
@@ -738,8 +799,15 @@ class _PassengerScreenState extends State<PassengerScreen> {
                                 },
                               ))
                         : (activeStays.isEmpty
-                            ? const Center(child: Text("No Homestays found.\nTry adjusting budget/search!", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)))
+                            ? Center(
+                                child: _emptyState(
+                                  icon: Icons.cottage_outlined,
+                                  title: "No Homestays Found",
+                                  subtitle: "Budget badha kar ya search badal kar dekhein.",
+                                ),
+                              )
                             : ListView.builder(
+                                padding: const EdgeInsets.only(bottom: 90),
                                 itemCount: activeStays.length,
                                 itemBuilder: (context, index) {
                                   final stay = activeStays[index];

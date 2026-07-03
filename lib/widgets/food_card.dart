@@ -5,6 +5,7 @@ import '../models/food_model.dart';
 import '../screens/host_food_screen.dart';
 import '../services/proximity_service.dart';
 import '../services/verified_phones_service.dart';
+import 'photo_picker_field.dart';
 import 'review_sheet.dart';
 import 'verified_badge.dart';
 
@@ -237,6 +238,12 @@ class FoodCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                  ],
+
+                  // ── Seating-area photos (every angle) ──
+                  if (place.seatingPhotos.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    SeatingPhotoStrip(photos: place.seatingPhotos, height: 72),
                   ],
 
                   // ── Menu (per-item prices + live stock) ──

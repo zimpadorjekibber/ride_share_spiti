@@ -140,6 +140,105 @@ class MultiPhotoPickerField extends StatelessWidget {
   }
 }
 
+/// Read-only horizontal strip of photos (URLs and/or local paths) with
+/// tap-to-zoom. Used to show seating-area / table-view photos to hosts and
+/// seekers. Renders nothing when [photos] is empty.
+class SeatingPhotoStrip extends StatelessWidget {
+  final List<String> photos;
+  final double height;
+  const SeatingPhotoStrip({super.key, required this.photos, this.height = 76});
+
+  static ImageProvider _provider(String p) =>
+      p.startsWith('http') ? NetworkImage(p) : FileImage(File(p));
+
+  void _openViewer(BuildContext context, int startIndex) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black,
+      builder: (_) => _SeatingPhotoViewer(photos: photos, initialIndex: startIndex),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (photos.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: height,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: photos.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, i) => GestureDetector(
+          onTap: () => _openViewer(context, i),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image(
+              image: _provider(photos[i]),
+              width: height,
+              height: height,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Container(
+                width: height,
+                height: height,
+                color: Colors.black12,
+                child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen, swipeable, pinch-to-zoom viewer for [SeatingPhotoStrip].
+class _SeatingPhotoViewer extends StatelessWidget {
+  final List<String> photos;
+  final int initialIndex;
+  const _SeatingPhotoViewer({required this.photos, required this.initialIndex});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = PageController(initialPage: initialIndex);
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: EdgeInsets.zero,
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: controller,
+            itemCount: photos.length,
+            itemBuilder: (_, i) => InteractiveViewer(
+              minScale: 1,
+              maxScale: 4,
+              child: Center(
+                child: Image(
+                  image: SeatingPhotoStrip._provider(photos[i]),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) =>
+                      const Icon(Icons.broken_image_outlined, color: Colors.white54, size: 48),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 40,
+            right: 16,
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                padding: const EdgeInsets.all(8),
+                child: const Icon(Icons.close, color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// A tappable box that lets a host add ONE property/food photo from the
 /// camera or gallery, shows a live thumbnail, and reports the file path back.
 class PhotoPickerField extends StatelessWidget {

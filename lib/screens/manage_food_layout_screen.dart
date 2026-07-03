@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/food_model.dart';
+import '../services/storage_service.dart';
+import '../widgets/photo_picker_field.dart';
 
 /// Host screen to manage a food place's TABLE LAYOUT (Free/Occupied) and the
 /// per-item STOCK ("kitne plate bache hain"). Shows a live tappable table grid.
@@ -29,8 +31,10 @@ class _StockDraft {
 class _ManageFoodLayoutScreenState extends State<ManageFoodLayoutScreen> {
   final List<_TableDraft> _tables = [];
   final List<_StockDraft> _stock = [];
+  List<String> _seatingPhotos = []; // seating-area photos (every angle)
   bool _submitting = false;
   static const Color _amber = Color(0xFFF59E0B);
+  static const int _maxSeatingPhotos = 6;
 
   /// Tables matter for sit-down Restaurants & Cafes (or if some already exist).
   bool get _showTables =>
@@ -44,6 +48,7 @@ class _ManageFoodLayoutScreenState extends State<ManageFoodLayoutScreen> {
     for (final t in widget.place.tables) {
       _tables.add(_TableDraft(id: t.id, name: TextEditingController(text: t.name), occupied: t.occupied));
     }
+    _seatingPhotos = List.from(widget.place.seatingPhotos);
     for (final m in widget.place.menu) {
       _stock.add(_StockDraft(name: m.name, price: m.price, qtyLeft: m.qtyLeft));
     }
@@ -65,10 +70,13 @@ class _ManageFoodLayoutScreenState extends State<ManageFoodLayoutScreen> {
     super.dispose();
   }
 
-  void _save() {
+  Future<void> _save() async {
     setState(() => _submitting = true);
     final messenger = ScaffoldMessenger.of(context);
     final provider = Provider.of<FoodProvider>(context, listen: false);
+
+    // Upload any new seating-area photos (falls back to local paths if offline).
+    final seatingUrls = await StorageService.uploadPhotos(_seatingPhotos, 'food');
 
     final tableUnits = _tables
         .where((t) => t.name.text.trim().isNotEmpty)
@@ -92,7 +100,8 @@ class _ManageFoodLayoutScreenState extends State<ManageFoodLayoutScreen> {
       homeDelivery: p.homeDelivery, deliveryRangeKm: p.deliveryRangeKm,
       cookOnRequest: p.cookOnRequest, offMarket: p.offMarket, lat: p.lat, lng: p.lng,
       rating: p.rating, safetyFlags: p.safetyFlags, mockPhotoIndex: p.mockPhotoIndex,
-      photoPath: p.photoPath, photos: p.photos, menu: newMenu, menuLink: p.menuLink,
+      photoPath: p.photoPath, photos: p.photos, seatingPhotos: seatingUrls,
+      menu: newMenu, menuLink: p.menuLink,
       facilities: p.facilities, tables: tableUnits,
     ));
 
@@ -198,6 +207,26 @@ class _ManageFoodLayoutScreenState extends State<ManageFoodLayoutScreen> {
               icon: const Icon(Icons.add, color: _amber),
               label: const Text('Add Table', style: TextStyle(color: _amber, fontWeight: FontWeight.w800)),
               style: OutlinedButton.styleFrom(side: const BorderSide(color: _amber)),
+            ),
+            const SizedBox(height: 20),
+
+            // ── Seating-area photos (whole place, every angle) ──
+            Row(
+              children: [
+                const Icon(Icons.photo_library, color: _amber, size: 18),
+                const SizedBox(width: 6),
+                Text('Seating Area Photos', style: TextStyle(color: primaryText, fontWeight: FontWeight.w900, fontSize: 15)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text('Add up to $_maxSeatingPhotos photos of your seating area from every angle so guests can see the vibe before they come.',
+                style: TextStyle(color: subText, fontSize: 11)),
+            const SizedBox(height: 10),
+            MultiPhotoPickerField(
+              paths: _seatingPhotos,
+              accent: _amber,
+              max: _maxSeatingPhotos,
+              onChanged: (list) => setState(() => _seatingPhotos = list),
             ),
             const SizedBox(height: 24),
             ], // end if (_showTables)
