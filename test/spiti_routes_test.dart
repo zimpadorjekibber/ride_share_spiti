@@ -21,6 +21,26 @@ void main() {
     });
   });
 
+  group('SpitiRoutes.knownPlaces (autocomplete)', () {
+    test('every suggestion resolves to a position', () {
+      for (final place in SpitiRoutes.knownPlaces) {
+        expect(SpitiRoutes.position(place), isNotNull,
+            reason: '"$place" should be recognised by the route matcher');
+      }
+    });
+    test('is Title Cased and contains key hubs', () {
+      expect(SpitiRoutes.knownPlaces, contains('Kaza'));
+      expect(SpitiRoutes.knownPlaces, contains('Manali'));
+      expect(SpitiRoutes.knownPlaces, contains('Reckong Peo'));
+      expect(SpitiRoutes.knownPlaces, contains('Kunzum Pass'));
+    });
+    test('alt/misspelled variants are excluded', () {
+      expect(SpitiRoutes.knownPlaces, isNot(contains('Kaja')));
+      expect(SpitiRoutes.knownPlaces, isNot(contains('Kibbar')));
+      expect(SpitiRoutes.knownPlaces, isNot(contains('Peo')));
+    });
+  });
+
   group('SpitiRoutes.rideServesTrip', () {
     test('ride covers an inner sub-trip same direction', () {
       // Manali→Tabo ride serves Kaza→Tabo seeker

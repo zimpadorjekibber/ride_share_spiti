@@ -118,6 +118,25 @@ class SpitiRoutes {
     'delhi': 900,
   };
 
+  /// Alternate spellings kept in [_milestone] only for fuzzy matching — these
+  /// should never be shown as autocomplete suggestions.
+  static const Set<String> _altSpellings = {
+    'grampu', 'chatru', 'chandra taal', 'kunzum', 'kunzum la', 'lossar',
+    'rangrich', 'kibbar', 'langja', 'komik', 'kaumik', 'dem-ul', 'kaja',
+    'kaze', 'sichling', 'lalung', 'dhankhar', 'pin', 'mudh', 'poo', 'spello',
+    'spillo', 'reckongpeo', 'recong peo', 'peo', 'rampur bushahr',
+  };
+
+  /// Canonical, Title-Cased place names for From/To autocomplete fields.
+  /// Using these spellings guarantees the corridor matcher recognises them.
+  static final List<String> knownPlaces = _milestone.keys
+      .where((k) => !_altSpellings.contains(k))
+      .map((k) => k
+          .split(' ')
+          .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+          .join(' '))
+      .toList();
+
   /// Approx position (km) of a typed place, or null if unknown.
   /// Fuzzy: matches if the query contains a known key or vice-versa.
   static double? position(String query) {

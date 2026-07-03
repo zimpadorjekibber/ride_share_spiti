@@ -8,6 +8,7 @@ import '../models/stay_model.dart';
 import '../widgets/ride_card.dart';
 import '../widgets/stay_card.dart';
 import '../widgets/ad_carousel.dart';
+import '../widgets/place_autocomplete_field.dart';
 import '../services/local_storage_service.dart';
 import '../models/booked_trip_model.dart';
 import '../services/proximity_service.dart';
@@ -353,8 +354,9 @@ class _PassengerScreenState extends State<PassengerScreen> {
                     Row(
                       children: [
                         Expanded(
-                          child: TextField(
+                          child: PlaceAutocompleteField(
                             controller: _fromController,
+                            accent: const Color(0xFF6366F1),
                             style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
                             decoration: InputDecoration(
                               labelText: "FROM (KAHAN SE)",
@@ -386,8 +388,9 @@ class _PassengerScreenState extends State<PassengerScreen> {
                           },
                         ),
                         Expanded(
-                          child: TextField(
+                          child: PlaceAutocompleteField(
                             controller: _toController,
+                            accent: const Color(0xFF6366F1),
                             style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
                             decoration: InputDecoration(
                               labelText: "TO (KAHAN TAK)",

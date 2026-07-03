@@ -16,6 +16,7 @@ import 'passenger_requests_screen.dart';
 import 'stay_requests_screen.dart';
 import 'manage_rooms_screen.dart';
 import '../widgets/photo_picker_field.dart';
+import '../widgets/place_autocomplete_field.dart';
 
 class DriverScreen extends StatefulWidget {
   final VoidCallback onRegistrationSuccess;
@@ -1754,13 +1755,14 @@ class _DriverScreenState extends State<DriverScreen> {
               ),
               const SizedBox(height: 12),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: _buildTextField(_fromController, "FROM LOCATION", "Starting point"),
+                    child: _buildPlaceField(_fromController, "FROM LOCATION", "Starting point"),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: _buildTextField(_toController, "TO LOCATION", "Destination point"),
+                    child: _buildPlaceField(_toController, "TO LOCATION", "Destination point"),
                   ),
                 ],
               ),
@@ -2263,6 +2265,41 @@ class _DriverScreenState extends State<DriverScreen> {
     );
   }
 
+  InputDecoration _fieldDecoration(String hint) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: TextStyle(color: Colors.grey[600], fontSize: 12),
+      filled: true,
+      fillColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.03),
+      enabledBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.15)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderSide: BorderSide(
+          color: Provider.of<RideProvider>(context, listen: false).appMode == AppMode.ride
+              ? const Color(0xFF6366F1)
+              : const Color(0xFF0D9488),
+        ),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      disabledBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderSide: const BorderSide(color: Colors.red),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderSide: const BorderSide(color: Colors.red),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      errorStyle: const TextStyle(fontSize: 10, height: 0.8),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    );
+  }
+
   Widget _buildTextField(
     TextEditingController controller,
     String label,
@@ -2288,38 +2325,35 @@ class _DriverScreenState extends State<DriverScreen> {
               : isNumber
                   ? TextInputType.number
                   : TextInputType.text,
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(color: Colors.grey[600], fontSize: 12),
-            filled: true,
-            fillColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.03),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.15)),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderSide: BorderSide(
-                color: Provider.of<RideProvider>(context, listen: false).appMode == AppMode.ride
-                    ? const Color(0xFF6366F1)
-                    : const Color(0xFF0D9488),
-              ),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            disabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05)),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            errorBorder: OutlineInputBorder(
-              borderSide: const BorderSide(color: Colors.red),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            focusedErrorBorder: OutlineInputBorder(
-              borderSide: const BorderSide(color: Colors.red),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            errorStyle: const TextStyle(fontSize: 10, height: 0.8),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          ),
+          decoration: _fieldDecoration(hint),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return "Field required";
+            }
+            return null;
+          },
+        ),
+      ],
+    );
+  }
+
+  /// From/To field with Spiti place suggestions — canonical spellings keep
+  /// the broadcast findable by the corridor matcher.
+  Widget _buildPlaceField(TextEditingController controller, String label, String hint) {
+    final isRideMode = Provider.of<RideProvider>(context, listen: false).appMode == AppMode.ride;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: Colors.grey, fontSize: 9, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        PlaceAutocompleteField(
+          controller: controller,
+          accent: isRideMode ? const Color(0xFF6366F1) : const Color(0xFF0D9488),
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
+          decoration: _fieldDecoration(hint),
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
               return "Field required";
