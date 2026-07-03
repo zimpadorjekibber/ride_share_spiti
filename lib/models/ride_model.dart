@@ -71,6 +71,16 @@ class Ride {
   int get availableSeats => totalSeats - bookedSeats.length;
   bool get isFull => bookedSeats.length >= totalSeats;
 
+  /// True once the ride's departure date is in the past (the ride stays
+  /// visible for the whole departure day). Unparseable dates never expire.
+  bool get isExpired {
+    final d = DateTime.tryParse(date.trim());
+    if (d == null) return false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return DateTime(d.year, d.month, d.day).isBefore(today);
+  }
+
   /// Booking details for a given seat id, if recorded.
   SeatBooking? bookingFor(String seatId) {
     for (final b in seatBookings) {
@@ -293,9 +303,15 @@ class RideProvider extends ChangeNotifier {
       _firebaseService.streamRides().listen((freshRides) {
         // Live data only — never auto-seed; and in launch mode hide any demo-id
         // (no-underscore) records that a stale client may have re-seeded.
-        _rides = LocalStorageService.demoSeedingDisabled
+        var visible = LocalStorageService.demoSeedingDisabled
             ? freshRides.where((r) => r.id.contains('_')).toList()
             : freshRides;
+        // Auto-clean rides whose departure date has passed: hide immediately
+        // and delete from Firestore so they disappear for everyone.
+        for (final r in visible.where((r) => r.isExpired)) {
+          _firebaseService.deleteDoc('rides', r.id);
+        }
+        _rides = visible.where((r) => !r.isExpired).toList();
         notifyListeners();
       });
     } else if (!LocalStorageService.demoSeedingDisabled) {
@@ -316,6 +332,7 @@ class RideProvider extends ChangeNotifier {
     final from = _searchFrom.trim();
     final to = _searchTo.trim();
     return _rides.where((ride) {
+      if (ride.isExpired) return false; // safety net for offline/demo lists
       if (_filterVehicleType != "all" && ride.vehicleType.name != _filterVehicleType) {
         return false;
       }
@@ -378,44 +395,64 @@ class RideProvider extends ChangeNotifier {
     }
   }
 
-  void bookSeats(String rideId, List<String> seatIds, {String name = '', String phone = ''}) async {
+  /// Returns true on success; false if the booking failed (e.g. a seat was
+  /// taken by someone else first) so the UI can inform the user.
+  Future<bool> bookSeats(String rideId, List<String> seatIds,
+      {String name = '', String phone = '', bool byDriver = false}) async {
     if (FirebaseService.isInitialized) {
       try {
-        await _firebaseService.bookSeats(rideId, seatIds, name: name, phone: phone);
+        await _firebaseService.bookSeats(rideId, seatIds, name: name, phone: phone, byDriver: byDriver);
       } catch (e) {
         debugPrint("Booking error: $e");
+        return false;
       }
     } else {
       final i = _rides.indexWhere((r) => r.id == rideId);
-      if (i != -1) {
-        final r = _rides[i];
-        _rides[i] = r.copyWith(
-          bookedSeats: [...r.bookedSeats, ...seatIds],
-          seatBookings: [
-            ...r.seatBookings,
-            ...seatIds.map((s) => SeatBooking(seatId: s, name: name, phone: phone)),
-          ],
-        );
-        notifyListeners();
+      if (i == -1) return false;
+      final r = _rides[i];
+      if (seatIds.any(r.bookedSeats.contains)) return false;
+      _rides[i] = r.copyWith(
+        bookedSeats: [...r.bookedSeats, ...seatIds],
+        seatBookings: [
+          ...r.seatBookings,
+          ...seatIds.map((s) => SeatBooking(seatId: s, name: name, phone: phone, byDriver: byDriver)),
+        ],
+      );
+      notifyListeners();
+    }
+    return true;
+  }
+
+  /// Free seats (passenger cancelled a booking / driver freed a seat).
+  /// Uses a Firestore transaction so it never clobbers concurrent bookings.
+  Future<void> unbookSeats(String rideId, List<String> seatIds) async {
+    if (FirebaseService.isInitialized) {
+      try {
+        await _firebaseService.unbookSeats(rideId, seatIds);
+      } catch (e) {
+        debugPrint("Unbook error: $e");
       }
+    } else {
+      final i = _rides.indexWhere((r) => r.id == rideId);
+      if (i == -1) return;
+      final r = _rides[i];
+      _rides[i] = r.copyWith(
+        bookedSeats: r.bookedSeats.where((s) => !seatIds.contains(s)).toList(),
+        seatBookings: r.seatBookings.where((b) => !seatIds.contains(b.seatId)).toList(),
+      );
+      notifyListeners();
     }
   }
 
   /// Driver manually blocks a seat (e.g. a phone / walk-in booking).
   void setSeatBooked(Ride ride, String seatId, {String name = '', String phone = '', bool byDriver = true}) {
     if (ride.bookedSeats.contains(seatId)) return;
-    updateRide(ride.copyWith(
-      bookedSeats: [...ride.bookedSeats, seatId],
-      seatBookings: [...ride.seatBookings, SeatBooking(seatId: seatId, name: name, phone: phone, byDriver: byDriver)],
-    ));
+    bookSeats(ride.id, [seatId], name: name, phone: phone, byDriver: byDriver);
   }
 
   /// Driver frees a seat (confirmed action — never an accidental tap).
   void freeSeat(Ride ride, String seatId) {
-    updateRide(ride.copyWith(
-      bookedSeats: ride.bookedSeats.where((s) => s != seatId).toList(),
-      seatBookings: ride.seatBookings.where((b) => b.seatId != seatId).toList(),
-    ));
+    unbookSeats(ride.id, [seatId]);
   }
 
   void moderateDriver(String driverName, {required bool flagAsBad}) {

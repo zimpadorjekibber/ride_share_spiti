@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/booked_trip_model.dart';
 import '../services/local_storage_service.dart';
 import '../models/ride_model.dart';
@@ -34,7 +35,8 @@ class _MyTripsScreenState extends State<MyTripsScreen>
     }
   }
 
-  Future<void> _cancelTrip(String bookingRef) async {
+  Future<void> _cancelTrip(BookedTrip trip) async {
+    final rideProvider = context.read<RideProvider>();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -55,7 +57,9 @@ class _MyTripsScreenState extends State<MyTripsScreen>
     );
 
     if (confirmed == true) {
-      await LocalStorageService.cancelTrip(bookingRef);
+      await LocalStorageService.cancelTrip(trip.bookingRef);
+      // Release the seats on the ride so other passengers can book them.
+      await rideProvider.unbookSeats(trip.rideId, trip.seatIds);
       _loadTrips();
     }
   }
@@ -124,6 +128,7 @@ class _MyTripsScreenState extends State<MyTripsScreen>
                       trips: upcoming,
                       onCancel: _cancelTrip,
                       onReviewCompleted: _loadTrips,
+                      onRefresh: _loadTrips,
                       emptyMessage: 'No upcoming trips.\nBook a ride now!',
                       emptyIcon: Icons.luggage_outlined,
                 ),
@@ -131,6 +136,7 @@ class _MyTripsScreenState extends State<MyTripsScreen>
                   trips: past,
                   onCancel: null,
                   onReviewCompleted: _loadTrips,
+                  onRefresh: _loadTrips,
                   emptyMessage: 'No past trips yet.',
                   emptyIcon: Icons.history,
                 ),
@@ -207,8 +213,9 @@ class _MyTripsScreenState extends State<MyTripsScreen>
 
 class _TripList extends StatelessWidget {
   final List<BookedTrip> trips;
-  final Future<void> Function(String)? onCancel;
+  final Future<void> Function(BookedTrip)? onCancel;
   final VoidCallback? onReviewCompleted;
+  final Future<void> Function()? onRefresh;
   final String emptyMessage;
   final IconData emptyIcon;
 
@@ -216,6 +223,7 @@ class _TripList extends StatelessWidget {
     required this.trips,
     required this.onCancel,
     this.onReviewCompleted,
+    this.onRefresh,
     required this.emptyMessage,
     required this.emptyIcon,
   });
@@ -243,7 +251,7 @@ class _TripList extends StatelessWidget {
     }
 
     return RefreshIndicator(
-      onRefresh: () async {},
+      onRefresh: onRefresh ?? () async {},
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: trips.length,
@@ -260,7 +268,7 @@ class _TripList extends StatelessWidget {
 
 class _TripCard extends StatelessWidget {
   final BookedTrip trip;
-  final Future<void> Function(String)? onCancel;
+  final Future<void> Function(BookedTrip)? onCancel;
   final VoidCallback? onReviewCompleted;
 
   const _TripCard({
@@ -268,6 +276,12 @@ class _TripCard extends StatelessWidget {
     required this.onCancel,
     this.onReviewCompleted,
   });
+
+  Future<void> _callDriver(String phone) async {
+    if (phone.trim().isEmpty) return;
+    final uri = Uri.parse('tel:${phone.replaceAll(' ', '')}');
+    if (await canLaunchUrl(uri)) await launchUrl(uri);
+  }
 
   Color _statusColor(String status) {
     switch (status) {
@@ -753,7 +767,7 @@ class _TripCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () => onCancel!(trip.bookingRef),
+                          onPressed: () => onCancel!(trip),
                           icon: const Icon(Icons.cancel_outlined,
                               size: 16, color: Colors.red),
                           label: const Text('Cancel Booking'),
@@ -768,7 +782,7 @@ class _TripCard extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: () {},
+                          onPressed: () => _callDriver(trip.driverPhone),
                           icon: const Icon(Icons.phone,
                               size: 16, color: Colors.white),
                           label: const Text('Call Driver'),

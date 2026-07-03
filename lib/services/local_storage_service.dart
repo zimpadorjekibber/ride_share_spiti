@@ -75,6 +75,11 @@ class LocalStorageService {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_tripsKey);
     if (raw == null) {
+      // Live launch: never seed fake trips — new users start with a clean list.
+      if (demoSeedingDisabled) {
+        await prefs.setStringList(_tripsKey, []);
+        return [];
+      }
       // Seed two mock booked trips for a fantastic testing experience
       final seed = [
         BookedTrip(
@@ -114,7 +119,26 @@ class LocalStorageService {
       await prefs.setStringList(_tripsKey, rawList);
       return seed;
     }
-    return raw.map((s) => BookedTrip.fromJson(jsonDecode(s))).toList();
+
+    // Auto-complete: an 'upcoming' trip whose departure date has passed becomes
+    // 'completed' (so the passenger gets the "Rate & Flag" option in Past).
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    var changed = false;
+    final updated = raw.map((s) {
+      final map = jsonDecode(s) as Map<String, dynamic>;
+      if (map['status'] == 'upcoming') {
+        final d = DateTime.tryParse((map['date'] ?? '').toString().trim());
+        if (d != null && DateTime(d.year, d.month, d.day).isBefore(today)) {
+          map['status'] = 'completed';
+          changed = true;
+        }
+      }
+      return jsonEncode(map);
+    }).toList();
+    if (changed) await prefs.setStringList(_tripsKey, updated);
+
+    return updated.map((s) => BookedTrip.fromJson(jsonDecode(s))).toList();
   }
 
   static Future<void> saveTrip(BookedTrip trip) async {
@@ -157,6 +181,11 @@ class LocalStorageService {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_reviewsKey);
     if (raw == null) {
+      // Live launch: no fake reviews — real ones arrive via cloud sync.
+      if (demoSeedingDisabled) {
+        await prefs.setStringList(_reviewsKey, []);
+        return [];
+      }
       // Seed a few demo reviews so lists aren't empty on first run.
       final seed = [
         Review(
@@ -299,6 +328,11 @@ class LocalStorageService {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_adsKey);
     if (raw == null) {
+      // Live launch: no fake ads — only real provider-paid promotions appear.
+      if (demoSeedingDisabled) {
+        await prefs.setStringList(_adsKey, []);
+        return [];
+      }
       // Pre-seed three gorgeous tourism ads
       final seed = [
         {
@@ -377,6 +411,11 @@ class LocalStorageService {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_verifsKey);
     if (raw == null) {
+      // Live launch: no fake pending verifications in the admin console.
+      if (demoSeedingDisabled) {
+        await prefs.setStringList(_verifsKey, []);
+        return [];
+      }
       // Pre-seed one pending driver doc + one pending homestay host review
       final seed = [
         {

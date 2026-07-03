@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:math';
 import '../models/booked_trip_model.dart';
 
@@ -307,8 +308,11 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen>
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: () {
-                              // Launch phone call
+                            onPressed: () async {
+                              final phone = widget.trip.driverPhone.replaceAll(' ', '');
+                              if (phone.isEmpty) return;
+                              final uri = Uri.parse('tel:$phone');
+                              if (await canLaunchUrl(uri)) await launchUrl(uri);
                             },
                             icon: const Icon(Icons.phone,
                                 color: Color(0xFF6366F1)),

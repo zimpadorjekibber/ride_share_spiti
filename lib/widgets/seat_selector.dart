@@ -17,6 +17,89 @@ class SeatSelectorModal extends StatefulWidget {
 class _SeatSelectorModalState extends State<SeatSelectorModal> {
   final List<String> _selectedSeats = [];
 
+  /// Booking needs the passenger's name & phone so the driver can contact
+  /// them. If the profile is incomplete, ask once and save it for next time.
+  /// Returns null if the user backed out.
+  Future<UserProfile?> _ensureContactDetails() async {
+    final profile = await LocalStorageService.getProfile();
+    if (profile.name.trim().isNotEmpty && profile.phone.trim().isNotEmpty) {
+      return profile;
+    }
+    if (!mounted) return null;
+
+    final nameCtrl = TextEditingController(text: profile.name);
+    final phoneCtrl = TextEditingController(text: profile.phone);
+    String? error;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Your contact details'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'The driver sees this name & number for your booked seat(s).',
+                style: TextStyle(fontSize: 12.5, color: Colors.grey),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: nameCtrl,
+                textCapitalization: TextCapitalization.words,
+                decoration: InputDecoration(
+                  labelText: 'Full name',
+                  prefixIcon: const Icon(Icons.person_outline, size: 20),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: 'Phone number',
+                  prefixIcon: const Icon(Icons.phone_outlined, size: 20),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 8),
+                Text(error!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () {
+                final name = nameCtrl.text.trim();
+                final digits = phoneCtrl.text.replaceAll(RegExp(r'\D'), '');
+                if (name.isEmpty) {
+                  setDialogState(() => error = 'Please enter your name.');
+                  return;
+                }
+                if (digits.length < 10) {
+                  setDialogState(() => error = 'Enter a valid 10-digit phone number.');
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+              child: const Text('Save & Continue', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (saved != true) return null;
+    profile.name = nameCtrl.text.trim();
+    profile.phone = phoneCtrl.text.trim();
+    await LocalStorageService.saveProfile(profile);
+    return profile;
+  }
+
   void _toggleSeat(String seatId, bool isBooked) {
     if (isBooked) return;
     setState(() {
@@ -413,9 +496,11 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        "TOTAL PRICE",
-                        style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold),
+                      Text(
+                        _selectedSeats.isEmpty
+                            ? "SELECT A SEAT"
+                            : "TOTAL · ${_selectedSeats.length} SEAT${_selectedSeats.length > 1 ? 'S' : ''}",
+                        style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold),
                       ),
                       Text(
                         "₹${totalPrice.toInt()}",
@@ -425,21 +510,45 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
                           color: isDarkMode ? Colors.white : Colors.black,
                         ),
                       ),
+                      if (_selectedSeats.length > 1)
+                        Text(
+                          "₹${widget.ride.price.toInt()} × ${_selectedSeats.length} (${_selectedSeats.join(', ')})",
+                          style: const TextStyle(fontSize: 10, color: Colors.grey),
+                        ),
                     ],
                   ),
                   ElevatedButton(
                     onPressed: _selectedSeats.isEmpty
                         ? null
                         : () async {
-                            // 1. Update ride in provider / Firebase (record who booked)
+                            // Capture navigator/messenger/provider BEFORE any
+                            // await — the modal context may be gone afterwards.
+                            final navigator = Navigator.of(context);
+                            final messenger = ScaffoldMessenger.of(context);
                             final rideProvider = Provider.of<RideProvider>(context, listen: false);
-                            final profile = await LocalStorageService.getProfile();
-                            rideProvider.bookSeats(
+
+                            // 0. Make sure the driver can reach this passenger.
+                            final profile = await _ensureContactDetails();
+                            if (profile == null) return; // user backed out
+
+                            // 1. Update ride in provider / Firebase (record who booked)
+                            final booked = await rideProvider.bookSeats(
                               widget.ride.id,
                               List.from(_selectedSeats),
                               name: profile.name,
                               phone: profile.phone,
                             );
+                            if (!booked) {
+                              navigator.pop(); // close modal
+                              messenger.showSnackBar(
+                                const SnackBar(
+                                  backgroundColor: Colors.red,
+                                  content: Text(
+                                      'Booking failed — one of the selected seats was just taken. Please pick another seat.'),
+                                ),
+                              );
+                              return;
+                            }
 
                             // 2. Build BookedTrip and save locally
                             final trip = BookedTrip(
@@ -465,16 +574,13 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
                             );
 
                             // 3. Navigate to confirmation
-                            if (context.mounted) {
-                              Navigator.pop(context); // close modal
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      BookingConfirmationScreen(trip: trip),
-                                ),
-                              );
-                            }
+                            navigator.pop(); // close modal
+                            navigator.push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    BookingConfirmationScreen(trip: trip),
+                              ),
+                            );
                           },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF10B981),

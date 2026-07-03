@@ -68,6 +68,8 @@ class FirebaseService {
           lat: (data['lat'] ?? 0.0).toDouble(),
           lng: (data['lng'] ?? 0.0).toDouble(),
           photoPath: data['photoPath'] ?? '',
+          driverRating: (data['driverRating'] ?? 5.0).toDouble(),
+          safetyFlags: List<String>.from(data['safetyFlags'] ?? []),
           seatBookings: ((data['seatBookings'] ?? const []) as List)
               .map((e) => SeatBooking.fromMap(Map<String, dynamic>.from(e)))
               .toList(),
@@ -95,13 +97,16 @@ class FirebaseService {
       'lat': ride.lat,
       'lng': ride.lng,
       'photoPath': ride.photoPath,
+      'driverRating': ride.driverRating,
+      'safetyFlags': ride.safetyFlags,
       'seatBookings': ride.seatBookings.map((b) => b.toMap()).toList(),
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
 
   // Book seats using Firestore Transaction (records who booked each seat)
-  Future<void> bookSeats(String rideId, List<String> seatIds, {String name = '', String phone = ''}) async {
+  Future<void> bookSeats(String rideId, List<String> seatIds,
+      {String name = '', String phone = '', bool byDriver = false}) async {
     if (!_initialized) return;
     final docRef = firestore.collection('rides').doc(rideId);
 
@@ -121,8 +126,33 @@ class FirebaseService {
       transaction.update(docRef, {
         'bookedSeats': FieldValue.arrayUnion(seatIds),
         'seatBookings': FieldValue.arrayUnion(
-          seatIds.map((s) => {'seatId': s, 'name': name, 'phone': phone, 'byDriver': false}).toList(),
+          seatIds.map((s) => {'seatId': s, 'name': name, 'phone': phone, 'byDriver': byDriver}).toList(),
         ),
+      });
+    });
+  }
+
+  // Free seats using a Transaction (passenger cancelled / driver freed a seat).
+  // Removes the seat ids from bookedSeats and their entries from seatBookings
+  // without overwriting the whole document (safe against concurrent bookings).
+  Future<void> unbookSeats(String rideId, List<String> seatIds) async {
+    if (!_initialized) return;
+    final docRef = firestore.collection('rides').doc(rideId);
+
+    await firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(docRef);
+      if (!snapshot.exists) return;
+      final data = snapshot.data() as Map<String, dynamic>;
+
+      final booked = List<String>.from(data['bookedSeats'] ?? [])
+        ..removeWhere(seatIds.contains);
+      final bookings = ((data['seatBookings'] ?? const []) as List)
+          .where((e) => !seatIds.contains((e as Map)['seatId']))
+          .toList();
+
+      transaction.update(docRef, {
+        'bookedSeats': booked,
+        'seatBookings': bookings,
       });
     });
   }

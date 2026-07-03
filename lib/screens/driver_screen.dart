@@ -49,21 +49,24 @@ class _DriverScreenState extends State<DriverScreen> {
   DateTime _selectedDate = DateTime.now();
   TimeOfDay _selectedTime = const TimeOfDay(hour: 8, minute: 0);
 
+  /// Picker theme that follows the app's current light/dark mode (previously
+  /// it forced a dark palette, which looked broken in light mode).
+  Widget _pickerTheme(BuildContext ctx, Widget? child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: Theme.of(ctx).colorScheme.copyWith(
+                primary: const Color(0xFF6366F1),
+              ),
+        ),
+        child: child!,
+      );
+
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 90)),
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.dark(
-            primary: Color(0xFF6366F1),
-            surface: Color(0xFF111827),
-          ),
-        ),
-        child: child!,
-      ),
+      builder: _pickerTheme,
     );
     if (picked != null) {
       setState(() => _selectedDate = picked);
@@ -74,15 +77,7 @@ class _DriverScreenState extends State<DriverScreen> {
     final picked = await showTimePicker(
       context: context,
       initialTime: _selectedTime,
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.dark(
-            primary: Color(0xFF6366F1),
-            surface: Color(0xFF111827),
-          ),
-        ),
-        child: child!,
-      ),
+      builder: _pickerTheme,
     );
     if (picked != null) {
       setState(() => _selectedTime = picked);
@@ -1427,7 +1422,9 @@ class _DriverScreenState extends State<DriverScreen> {
   @override
   Widget build(BuildContext context) {
     final initialCenter = LatLng(32.2276, 78.0710);
-    final isMobile = MediaQuery.of(context).size.width < 750;
+    final size = MediaQuery.of(context).size;
+    // Short screens (phone landscape) also need the stacked scrollable layout.
+    final isMobile = size.width < 750 || size.height < 600;
     final rideProvider = Provider.of<RideProvider>(context);
     final stayProvider = Provider.of<StayProvider>(context);
     final isDarkMode = rideProvider.isDarkMode;

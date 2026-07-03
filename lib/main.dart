@@ -171,6 +171,42 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     }
   }
 
+  PopupMenuItem<AppMode> _modeMenuItem(AppMode mode, IconData icon, String title,
+      String subtitle, Color color, AppMode current) {
+    final selected = mode == current;
+    return PopupMenuItem<AppMode>(
+      value: mode,
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 18, color: color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title,
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: selected ? FontWeight.w800 : FontWeight.w600)),
+                Text(subtitle, style: const TextStyle(fontSize: 10.5, color: Colors.grey)),
+              ],
+            ),
+          ),
+          if (selected) Icon(Icons.check_circle, size: 16, color: color),
+        ],
+      ),
+    );
+  }
+
   void _openNotifications() async {
     await Navigator.push(
       context,
@@ -244,12 +280,24 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           ],
         ),
         actions: [
-          // Mode Toggle Switch
-          GestureDetector(
-            onTap: () {
-              rideProvider.toggleAppMode();
+          // Mode selector — tap shows all three modes so users can jump
+          // directly instead of blindly cycling through them.
+          PopupMenuButton<AppMode>(
+            tooltip: 'Switch mode',
+            offset: const Offset(0, 42),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            onSelected: (mode) {
+              rideProvider.setAppMode(mode);
               HapticFeedback.lightImpact();
             },
+            itemBuilder: (ctx) => [
+              _modeMenuItem(AppMode.ride, Icons.airport_shuttle, 'RideShare',
+                  'Find & offer rides', const Color(0xFF6366F1), appMode),
+              _modeMenuItem(AppMode.stay, Icons.house_rounded, 'FindStay',
+                  'Homestays & rooms', const Color(0xFF10B981), appMode),
+              _modeMenuItem(AppMode.food, Icons.restaurant, 'FindFood',
+                  'Local food & dining', const Color(0xFFF59E0B), appMode),
+            ],
             child: Container(
               margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -274,7 +322,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     ),
                   ),
                   const SizedBox(width: 3),
-                  Icon(Icons.swap_horiz, size: 12, color: modeColor.withValues(alpha: 0.7)),
+                  Icon(Icons.expand_more, size: 13, color: modeColor.withValues(alpha: 0.7)),
                 ],
               ),
             ),
@@ -298,18 +346,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               ),
               if (_unreadCount > 0)
                 Positioned(
-                  right: 8,
+                  right: 6,
                   top: 8,
                   child: Container(
-                    width: 16,
+                    constraints: const BoxConstraints(minWidth: 16),
                     height: 16,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFEF4444),
-                      shape: BoxShape.circle,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     alignment: Alignment.center,
                     child: Text(
-                      '$_unreadCount',
+                      _unreadCount > 9 ? '9+' : '$_unreadCount',
                       style: const TextStyle(
                           color: Colors.white,
                           fontSize: 9,
