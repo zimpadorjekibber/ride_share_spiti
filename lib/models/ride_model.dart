@@ -129,6 +129,7 @@ enum AppMode { stay, food, ride }
 
 class RideProvider extends ChangeNotifier {
   static const String _themeKey = 'dark_mode';
+  static const String _modeKey = 'app_mode';
 
   bool _isDarkMode = false; // default: light mode
   bool get isDarkMode => _isDarkMode;
@@ -136,7 +137,21 @@ class RideProvider extends ChangeNotifier {
   Future<void> _loadTheme() async {
     final prefs = await SharedPreferences.getInstance();
     _isDarkMode = prefs.getBool(_themeKey) ?? false; // light unless user chose dark
+    // Reopen in the mode the user last used (drivers live in Ride mode,
+    // hosts in Stay — don't make them switch every launch).
+    final savedMode = prefs.getString(_modeKey);
+    if (savedMode != null) {
+      _appMode = AppMode.values.firstWhere(
+        (m) => m.name == savedMode,
+        orElse: () => AppMode.stay,
+      );
+    }
     notifyListeners();
+  }
+
+  void _saveMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_modeKey, _appMode.name);
   }
 
   void toggleTheme() async {
@@ -153,11 +168,13 @@ class RideProvider extends ChangeNotifier {
     // Cycle: ride → stay → food → ride
     _appMode = AppMode.values[(_appMode.index + 1) % AppMode.values.length];
     notifyListeners();
+    _saveMode();
   }
 
   void setAppMode(AppMode mode) {
     _appMode = mode;
     notifyListeners();
+    _saveMode();
   }
 
   List<Ride> _rides = [];
