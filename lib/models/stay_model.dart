@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'passenger_request_model.dart' show parseFlexibleDate;
 import '../services/firebase_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/phone_utils.dart';
@@ -108,6 +109,7 @@ class Stay {
   final List<String> safetyFlags;
   final int mockPhotoIndex;
   final String propertyType;
+  final String village; // Spiti village/area (searchable; GPS alone isn't)
   final List<String> amenities;
   final String photoPath; // local file path of host-uploaded property photo
   final bool isFull; // host marked all rooms booked
@@ -131,6 +133,7 @@ class Stay {
     this.safetyFlags = const [],
     this.mockPhotoIndex = 0,
     this.propertyType = 'Homestay',
+    this.village = '',
     this.amenities = const [],
     this.photoPath = '',
     this.isFull = false,
@@ -163,6 +166,7 @@ class Stay {
         safetyFlags: safetyFlags ?? this.safetyFlags,
         mockPhotoIndex: mockPhotoIndex,
         propertyType: propertyType,
+        village: village,
         amenities: amenities,
         photoPath: photoPath,
         isFull: isFull ?? this.isFull,
@@ -194,6 +198,7 @@ class Stay {
       'safetyFlags': safetyFlags,
       'mockPhotoIndex': mockPhotoIndex,
       'propertyType': propertyType,
+      'village': village,
       'amenities': amenities,
       'photoPath': photoPath,
       'isFull': isFull,
@@ -220,6 +225,7 @@ class Stay {
       safetyFlags: List<String>.from(map['safetyFlags'] ?? []),
       mockPhotoIndex: map['mockPhotoIndex'] ?? 0,
       propertyType: map['propertyType'] ?? 'Homestay',
+      village: map['village'] ?? '',
       amenities: List<String>.from(map['amenities'] ?? []),
       photoPath: map['photoPath'] ?? '',
       isFull: map['isFull'] ?? false,
@@ -291,7 +297,7 @@ class StayRequest {
       note: map['note'] ?? '',
       lat: (map['lat'] ?? 0.0).toDouble(),
       lng: (map['lng'] ?? 0.0).toDouble(),
-      createdAt: DateTime.tryParse(map['createdAt'] ?? '') ?? DateTime.now(),
+      createdAt: parseFlexibleDate(map['createdAt']),
       propertyType: map['propertyType'] ?? 'Any',
       desiredAmenities: List<String>.from(map['desiredAmenities'] ?? []),
     );

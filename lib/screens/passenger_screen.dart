@@ -12,9 +12,11 @@ import '../widgets/place_autocomplete_field.dart';
 import '../services/local_storage_service.dart';
 import '../models/booked_trip_model.dart';
 import '../services/proximity_service.dart';
+import '../services/location_service.dart';
 import 'post_request_screen.dart';
 import 'post_stay_request_screen.dart';
 import '../services/phone_utils.dart';
+import '../services/dialer.dart';
 
 class PassengerScreen extends StatefulWidget {
   const PassengerScreen({super.key});
@@ -28,13 +30,25 @@ class _PassengerScreenState extends State<PassengerScreen> {
   final TextEditingController _toController = TextEditingController();
   String _selectedType = "all";
   String _selectedDate = ""; // 'YYYY-MM-DD'; empty = any date
-  RangeValues _budgetRange = const RangeValues(500.0, 5000.0);
+  static const double _budgetMin = 0.0;
+  static const double _budgetMax = 10000.0; // top of the slider = 'and above'
+  RangeValues _budgetRange = const RangeValues(_budgetMin, _budgetMax);
   final MapController _mapController = MapController();
   UserProfile _userProfile = UserProfile();
+  bool _locating = false;
 
   @override
   void initState() {
     super.initState();
+    // Restore whatever filters are still live in the provider. Switching to
+    // Profile and back rebuilt this screen from scratch, so the boxes looked
+    // empty while the list was still filtered — confusing "where did my rides
+    // go?" behaviour.
+    final p = context.read<RideProvider>();
+    _fromController.text = p.searchFrom;
+    _toController.text = p.searchTo;
+    _selectedType = p.filterVehicleType;
+    _selectedDate = p.searchDate;
     _loadUserProfile();
   }
 
@@ -48,6 +62,42 @@ class _PassengerScreenState extends State<PassengerScreen> {
         _checkNearbyAlerts();
       }
     }
+  }
+
+  /// Ask the OS for a real GPS fix. The button used to just flip a flag and
+  /// claim "permission granted" — distances were then measured from a
+  /// hardcoded Kaza centre, so "12 km away" could be pure fiction.
+  Future<void> _enableLocation() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _locating = true);
+    final pos = await LocationService.getCurrentPosition();
+    if (!mounted) return;
+
+    if (pos == null) {
+      setState(() => _locating = false);
+      messenger.showSnackBar(
+        const SnackBar(
+          backgroundColor: Color(0xFFB45309),
+          content: Text(
+              "Location off ya permission denied — phone settings me location on karke dobara try karein."),
+        ),
+      );
+      return;
+    }
+
+    _userProfile.locationPermissionGranted = true;
+    _userProfile.currentLat = pos.latitude;
+    _userProfile.currentLng = pos.longitude;
+    await LocalStorageService.saveProfile(_userProfile);
+    if (!mounted) return;
+    setState(() => _locating = false);
+    _checkNearbyAlerts();
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text("📍 Location on — ab nearby rides ki distance sahi dikhegi."),
+        backgroundColor: Color(0xFF10B981),
+      ),
+    );
   }
 
   void _checkNearbyAlerts() {
@@ -163,7 +213,7 @@ class _PassengerScreenState extends State<PassengerScreen> {
     setState(() {
       _selectedType = "all";
       _selectedDate = "";
-      _budgetRange = const RangeValues(500.0, 5000.0);
+      _budgetRange = const RangeValues(_budgetMin, _budgetMax);
     });
     _applyFilters();
   }
@@ -284,7 +334,7 @@ class _PassengerScreenState extends State<PassengerScreen> {
         ? allActiveRides
         : [
             ...allActiveRides.where((r) => samePhone(r.phone, _userProfile.phone)),
-            ...allActiveRides.where((r) => r.phone != _userProfile.phone),
+            ...allActiveRides.where((r) => !samePhone(r.phone, _userProfile.phone)),
           ];
 
     // Stays list based on budget and search keyword
@@ -292,9 +342,12 @@ class _PassengerScreenState extends State<PassengerScreen> {
       final query = _fromController.text.toLowerCase();
       final matchesSearch = stay.title.toLowerCase().contains(query) ||
           stay.description.toLowerCase().contains(query) ||
-          stay.hostName.toLowerCase().contains(query);
+          stay.hostName.toLowerCase().contains(query) ||
+          stay.village.toLowerCase().contains(query);
+      // At the top of the slider the filter means "₹10000 and above", so a
+      // premium property never vanishes without explanation.
       final matchesBudget = stay.pricePerNight >= _budgetRange.start &&
-          stay.pricePerNight <= _budgetRange.end;
+          (_budgetRange.end >= _budgetMax || stay.pricePerNight <= _budgetRange.end);
       return matchesSearch && matchesBudget;
     }).toList();
 
@@ -630,19 +683,21 @@ class _PassengerScreenState extends State<PassengerScreen> {
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   const Text("Price/Night Range", style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
-                                  Text("₹${_budgetRange.start.toInt()} - ₹${_budgetRange.end.toInt()}", style: const TextStyle(fontSize: 11, color: Color(0xFF0D9488), fontWeight: FontWeight.bold)),
+                                  Text(
+                                      "₹${_budgetRange.start.toInt()} - ₹${_budgetRange.end.toInt()}${_budgetRange.end >= _budgetMax ? '+' : ''}",
+                                      style: const TextStyle(fontSize: 11, color: Color(0xFF0D9488), fontWeight: FontWeight.bold)),
                                 ],
                               ),
                               RangeSlider(
                                 values: _budgetRange,
-                                min: 500.0,
-                                max: 5000.0,
-                                divisions: 18,
+                                min: _budgetMin,
+                                max: _budgetMax,
+                                divisions: 20,
                                 activeColor: const Color(0xFF0D9488),
                                 inactiveColor: isDarkMode ? Colors.white10 : Colors.black12,
                                 labels: RangeLabels(
                                   '₹${_budgetRange.start.toInt()}',
-                                  '₹${_budgetRange.end.toInt()}',
+                                  '₹${_budgetRange.end.toInt()}${_budgetRange.end >= _budgetMax ? '+' : ''}',
                                 ),
                                 onChanged: (val) => setState(() => _budgetRange = val),
                               ),
@@ -787,19 +842,7 @@ class _PassengerScreenState extends State<PassengerScreen> {
                     ),
                     const SizedBox(width: 8),
                     ElevatedButton(
-                      onPressed: () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        _userProfile.locationPermissionGranted = true;
-                        await LocalStorageService.saveProfile(_userProfile);
-                        setState(() {});
-                        _checkNearbyAlerts();
-                        messenger.showSnackBar(
-                          const SnackBar(
-                            content: Text("📍 Location permission granted! Auto-alerts are active."),
-                            backgroundColor: Color(0xFF10B981),
-                          ),
-                        );
-                      },
+                      onPressed: _locating ? null : _enableLocation,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: rideProvider.appMode == AppMode.ride ? const Color(0xFF6366F1) : const Color(0xFF0D9488),
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -809,10 +852,20 @@ class _PassengerScreenState extends State<PassengerScreen> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      child: const Text(
-                        "Allow",
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
+                      child: _locating
+                          ? const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Text(
+                              "Allow",
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white),
+                            ),
                     ),
                   ],
                 ),
@@ -900,9 +953,7 @@ class _PassengerScreenState extends State<PassengerScreen> {
                                 userLng: _userProfile.locationPermissionGranted ? _userProfile.currentLng : null,
                                 onBook: () {
                                   HapticFeedback.mediumImpact();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text("Calling host ${stay.hostName} at ${stay.phone}..."), backgroundColor: const Color(0xFF0D9488)),
-                                  );
+                                  dialPhone(context, stay.phone);
                                 },
                                 onTrack: () => _focusOnLocation(stay.lat, stay.lng),
                               );
@@ -954,9 +1005,7 @@ class _PassengerScreenState extends State<PassengerScreen> {
                                     userLng: _userProfile.locationPermissionGranted ? _userProfile.currentLng : null,
                                     onBook: () {
                                       HapticFeedback.mediumImpact();
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text("Calling host ${stay.hostName} at ${stay.phone}..."), backgroundColor: const Color(0xFF0D9488)),
-                                      );
+                                      dialPhone(context, stay.phone);
                                     },
                                     onTrack: () => _focusOnLocation(stay.lat, stay.lng),
                                   );

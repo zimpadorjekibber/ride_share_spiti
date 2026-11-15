@@ -165,6 +165,93 @@ class _HostFoodScreenState extends State<HostFoodScreen> {
     return items;
   }
 
+  /// A food listing is useless without a phone number — travellers contact
+  /// cooks ONLY by calling, and the owner can never edit/delete a listing
+  /// whose phone doesn't match their profile. If the profile is incomplete,
+  /// ask once and save it. Returns false if the user backed out.
+  Future<bool> _ensureContactDetails() async {
+    if (_profile.name.trim().isNotEmpty && _profile.phone.trim().isNotEmpty) {
+      return true;
+    }
+    final nameCtrl = TextEditingController(text: _profile.name);
+    final phoneCtrl = TextEditingController(text: _profile.phone);
+    String? error;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Your contact details'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Travellers call this number to order food — listing needs it.',
+                style: TextStyle(fontSize: 12.5, color: Colors.grey),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: nameCtrl,
+                textCapitalization: TextCapitalization.words,
+                decoration: InputDecoration(
+                  labelText: 'Full name',
+                  prefixIcon: const Icon(Icons.person_outline, size: 20),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: 'Phone number',
+                  prefixIcon: const Icon(Icons.phone_outlined, size: 20),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 8),
+                Text(error!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () {
+                final name = nameCtrl.text.trim();
+                final digits = phoneCtrl.text.replaceAll(RegExp(r'\D'), '');
+                if (name.isEmpty) {
+                  setDialogState(() => error = 'Please enter your name.');
+                  return;
+                }
+                if (digits.length < 10) {
+                  setDialogState(() => error = 'Enter a valid 10-digit phone number.');
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: _accent),
+              child: const Text('Save & Continue', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final typedName = nameCtrl.text.trim();
+    final typedPhone = phoneCtrl.text.trim();
+    nameCtrl.dispose();
+    phoneCtrl.dispose();
+    if (saved != true) return false;
+    _profile.name = typedName;
+    _profile.phone = typedPhone;
+    _profile.isRegistered = true;
+    await LocalStorageService.saveProfile(_profile);
+    if (mounted) setState(() {});
+    return true;
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (!_locationSet) {
@@ -173,6 +260,9 @@ class _HostFoodScreenState extends State<HostFoodScreen> {
       );
       return;
     }
+    // New listings must carry the owner's real name & phone.
+    if (widget.existing == null && !await _ensureContactDetails()) return;
+    if (!mounted) return;
     final menu = _collectMenu(); // optional — a QR/menu link can replace it
     final foodProvider = Provider.of<FoodProvider>(context, listen: false);
     final e = widget.existing;
@@ -196,7 +286,7 @@ class _HostFoodScreenState extends State<HostFoodScreen> {
 
     final place = FoodPlace(
       id: e?.id ?? 'f_${DateTime.now().millisecondsSinceEpoch}',
-      ownerName: e?.ownerName ?? (_profile.isRegistered ? _profile.name : 'Local Cook'),
+      ownerName: e?.ownerName ?? (_profile.name.trim().isNotEmpty ? _profile.name : 'Local Cook'),
       phone: e?.phone ?? _profile.phone,
       title: _titleController.text.trim(),
       foodType: _foodType,

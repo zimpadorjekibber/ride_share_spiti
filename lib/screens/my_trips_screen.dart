@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/booked_trip_model.dart';
 import '../services/local_storage_service.dart';
+import '../services/phone_utils.dart';
 import '../models/ride_model.dart';
 
 class MyTripsScreen extends StatefulWidget {
@@ -58,8 +59,26 @@ class _MyTripsScreenState extends State<MyTripsScreen>
 
     if (confirmed == true) {
       await LocalStorageService.cancelTrip(trip.bookingRef);
-      // Release the seats on the ride so other passengers can book them.
-      await rideProvider.unbookSeats(trip.rideId, trip.seatIds);
+      // Release the seats on the ride so other passengers can book them —
+      // but only the ones still held by THIS passenger. If a seat was freed
+      // earlier and re-booked by someone else, cancelling this old trip must
+      // not wipe out their booking.
+      final profile = await LocalStorageService.getProfile();
+      final i = rideProvider.allRides.indexWhere((r) => r.id == trip.rideId);
+      var toFree = trip.seatIds;
+      if (i >= 0) {
+        final ride = rideProvider.allRides[i];
+        toFree = trip.seatIds.where((s) {
+          final b = ride.bookingFor(s);
+          // No record (older booking) → assume it's ours; otherwise match phone.
+          return b == null ||
+              b.phone.trim().isEmpty ||
+              samePhone(b.phone, profile.phone);
+        }).toList();
+      }
+      if (toFree.isNotEmpty) {
+        await rideProvider.unbookSeats(trip.rideId, toFree);
+      }
       _loadTrips();
     }
   }

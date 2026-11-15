@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/food_model.dart';
 import '../widgets/review_sheet.dart';
 import '../services/local_storage_service.dart';
+import '../services/dialer.dart';
 
 class FoodRequestsScreen extends StatefulWidget {
   const FoodRequestsScreen({super.key});
@@ -14,7 +15,6 @@ class FoodRequestsScreen extends StatefulWidget {
 
 class _FoodRequestsScreenState extends State<FoodRequestsScreen> {
   final Map<String, String> _decisions = {};
-  static const Color _accent = Color(0xFFF59E0B);
 
   void _decide(FoodRequest req, String decision) {
     HapticFeedback.mediumImpact();
@@ -80,13 +80,7 @@ class _FoodRequestsScreenState extends State<FoodRequestsScreen> {
                 onReject: () => _decide(requests[i], 'rejected'),
                 onContact: () {
                   HapticFeedback.mediumImpact();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Calling ${requests[i].seekerName} at ${requests[i].phone}...'),
-                      backgroundColor: _accent,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
+                  dialPhone(context, requests[i].phone);
                 },
               ),
             ),

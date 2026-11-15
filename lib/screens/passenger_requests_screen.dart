@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/passenger_request_model.dart';
 import '../widgets/review_sheet.dart';
 import '../services/local_storage_service.dart';
+import '../services/dialer.dart';
 
 class PassengerRequestsScreen extends StatefulWidget {
   const PassengerRequestsScreen({super.key});
@@ -203,14 +204,7 @@ class _PassengerRequestsScreenState extends State<PassengerRequestsScreen> {
                       onReject: () => _decide(filtered[i], 'rejected'),
                       onContact: () {
                         HapticFeedback.mediumImpact();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                                'Calling ${filtered[i].passengerName}...'),
-                            backgroundColor: const Color(0xFF6366F1),
-                            duration: const Duration(seconds: 2),
-                          ),
-                        );
+                        dialPhone(context, filtered[i].phone);
                       },
                     ),
                   ),

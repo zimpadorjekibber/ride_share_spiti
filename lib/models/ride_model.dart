@@ -166,7 +166,7 @@ class RideProvider extends ChangeNotifier {
   AppMode get appMode => _appMode;
 
   void toggleAppMode() {
-    // Cycle: ride → stay → food → ride
+    // Cycle follows the enum order: stay → food → ride → stay
     _appMode = AppMode.values[(_appMode.index + 1) % AppMode.values.length];
     notifyListeners();
     _saveMode();
@@ -324,11 +324,10 @@ class RideProvider extends ChangeNotifier {
         var visible = LocalStorageService.demoSeedingDisabled
             ? freshRides.where((r) => r.id.contains('_')).toList()
             : freshRides;
-        // Auto-clean rides whose departure date has passed: hide immediately
-        // and delete from Firestore so they disappear for everyone.
-        for (final r in visible.where((r) => r.isExpired)) {
-          _firebaseService.deleteDoc('rides', r.id);
-        }
+        // Hide rides whose departure date has passed. Deleting them is the
+        // scheduled `cleanupExpired` Cloud Function's job now — every client
+        // used to fire a delete for every expired ride on every snapshot,
+        // which meant N phones racing to delete the same M documents.
         _rides = visible.where((r) => !r.isExpired).toList();
         notifyListeners();
       });
@@ -342,6 +341,14 @@ class RideProvider extends ChangeNotifier {
   String _searchTo = "";
   String _filterVehicleType = "all";
   String _searchDate = ""; // 'YYYY-MM-DD'; empty = any date
+
+  // Exposed so the Find-Rides screen can re-hydrate its From/To boxes when it
+  // is rebuilt (bottom-nav tab switches destroy that screen's state — the
+  // fields came back empty while the filters were still being applied).
+  String get searchFrom => _searchFrom;
+  String get searchTo => _searchTo;
+  String get filterVehicleType => _filterVehicleType;
+  String get searchDate => _searchDate;
 
   /// Unfiltered list — used by the driver's own "My Rides" dashboard so that
   /// search filters on the Find Rides screen never hide their listings.
@@ -401,7 +408,7 @@ class RideProvider extends ChangeNotifier {
   /// Update an existing ride (driver editing / managing their own ride).
   void updateRide(Ride updated) async {
     if (FirebaseService.isInitialized) {
-      await _firebaseService.addRide(updated); // same id → overwrite
+      await _firebaseService.updateRideDetails(updated); // keeps seats & createdAt
     } else {
       final i = _rides.indexWhere((r) => r.id == updated.id);
       if (i >= 0) {
@@ -483,29 +490,20 @@ class RideProvider extends ChangeNotifier {
   }
 
   void moderateDriver(String driverName, {required bool flagAsBad}) {
+    // copyWith, not a hand-rolled Ride(): the manual copy silently dropped
+    // photoPath and seatBookings, so moderating a driver erased their vehicle
+    // photo and every recorded seat holder.
     final updated = _rides.map((ride) {
-      if (ride.driverName == driverName) {
-        return Ride(
-          id: ride.id,
-          driverName: ride.driverName,
-          phone: ride.phone,
-          vehicleType: ride.vehicleType,
-          vehicleName: ride.vehicleName,
-          plateNumber: ride.plateNumber,
-          totalSeats: ride.totalSeats,
-          bookedSeats: ride.bookedSeats,
-          from: ride.from,
-          to: ride.to,
-          date: ride.date,
-          time: ride.time,
-          price: ride.price,
-          lat: ride.lat,
-          lng: ride.lng,
-          driverRating: flagAsBad ? 2.8 : 5.0,
-          safetyFlags: flagAsBad ? ["⚠️ Flagged: Rash driving on Spiti cliffs", "⚠️ Low safety score: Overcharging complaints"] : [],
-        );
-      }
-      return ride;
+      if (ride.driverName != driverName) return ride;
+      return ride.copyWith(
+        driverRating: flagAsBad ? 2.8 : 5.0,
+        safetyFlags: flagAsBad
+            ? const [
+                "⚠️ Flagged: Rash driving on Spiti cliffs",
+                "⚠️ Low safety score: Overcharging complaints",
+              ]
+            : const [],
+      );
     }).toList();
     _rides = updated;
     notifyListeners();

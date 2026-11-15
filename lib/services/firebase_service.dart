@@ -136,6 +136,37 @@ class FirebaseService {
     });
   }
 
+  /// Driver edits an existing ride.
+  ///
+  /// Deliberately NOT a full `set()`: that re-stamped `createdAt` (so an
+  /// edited ride jumped to the top of everyone's list) and rewrote
+  /// `bookedSeats` / `seatBookings` from the editing client's possibly-stale
+  /// copy, which could wipe a booking made seconds earlier. Seat state is
+  /// owned solely by the booking transactions.
+  Future<void> updateRideDetails(Ride ride) async {
+    if (!_initialized) return;
+    await ensureSignedIn();
+    await firestore.collection('rides').doc(ride.id).set({
+      'driverName': ride.driverName,
+      'phone': ride.phone,
+      'vehicleType': ride.vehicleType.name,
+      'vehicleName': ride.vehicleName,
+      'plateNumber': ride.plateNumber,
+      'totalSeats': ride.totalSeats,
+      'from': ride.from,
+      'to': ride.to,
+      'date': ride.date,
+      'time': ride.time,
+      'price': ride.price,
+      'lat': ride.lat,
+      'lng': ride.lng,
+      'photoPath': ride.photoPath,
+      'driverRating': ride.driverRating,
+      'safetyFlags': ride.safetyFlags,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   // Book seats using Firestore Transaction (records who booked each seat)
   Future<void> bookSeats(String rideId, List<String> seatIds,
       {String name = '', String phone = '', bool byDriver = false}) async {
@@ -265,7 +296,14 @@ class FirebaseService {
   Future<void> addStayRequest(StayRequest req) async {
     if (!_initialized) return;
     await ensureSignedIn();
-    await firestore.collection('stay_requests').doc(req.id).set(req.toMap());
+    await firestore
+        .collection('stay_requests')
+        .doc(req.id)
+        // A server timestamp, like every other collection: these two
+        // wrote a client-clock ISO string, so `orderBy('createdAt')`
+        // mixed types and a wrong phone clock could park a request at
+        // the top of the list forever.
+        .set(req.toMap()..['createdAt'] = FieldValue.serverTimestamp());
   }
 
   Future<void> deleteDoc(String collection, String id) async {
@@ -308,7 +346,14 @@ class FirebaseService {
   Future<void> addFoodRequest(FoodRequest req) async {
     if (!_initialized) return;
     await ensureSignedIn();
-    await firestore.collection('food_requests').doc(req.id).set(req.toMap());
+    await firestore
+        .collection('food_requests')
+        .doc(req.id)
+        // A server timestamp, like every other collection: these two
+        // wrote a client-clock ISO string, so `orderBy('createdAt')`
+        // mixed types and a wrong phone clock could park a request at
+        // the top of the list forever.
+        .set(req.toMap()..['createdAt'] = FieldValue.serverTimestamp());
   }
 
   // ── Bookings (cloud copy of My Trips, keyed by passenger phone) ──

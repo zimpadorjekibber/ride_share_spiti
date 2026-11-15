@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/stay_model.dart';
 import '../widgets/review_sheet.dart';
 import '../services/local_storage_service.dart';
+import '../services/dialer.dart';
 
 class StayRequestsScreen extends StatefulWidget {
   const StayRequestsScreen({super.key});
@@ -192,13 +193,7 @@ class _StayRequestsScreenState extends State<StayRequestsScreen> {
                       onReject: () => _decide(filtered[i], 'rejected'),
                       onContact: () {
                         HapticFeedback.mediumImpact();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Calling tourist ${filtered[i].seekerName} at ${filtered[i].phone}...'),
-                            backgroundColor: const Color(0xFF0D9488),
-                            duration: const Duration(seconds: 2),
-                          ),
-                        );
+                        dialPhone(context, filtered[i].phone);
                       },
                     ),
                   ),

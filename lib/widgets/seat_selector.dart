@@ -104,9 +104,13 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
       ),
     );
 
+    final typedName = nameCtrl.text.trim();
+    final typedPhone = phoneCtrl.text.trim();
+    nameCtrl.dispose();
+    phoneCtrl.dispose();
     if (saved != true) return null;
-    profile.name = nameCtrl.text.trim();
-    profile.phone = phoneCtrl.text.trim();
+    profile.name = typedName;
+    profile.phone = typedPhone;
     await LocalStorageService.saveProfile(profile);
     return profile;
   }
@@ -122,8 +126,40 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
     });
   }
 
+  /// A seat the vehicle physically has but the driver is NOT selling
+  /// (e.g. a 4-seater taxi registered with only 2 seats free). Previously the
+  /// schematic drew every seat of the layout, so a passenger could book S4 on
+  /// a 2-seat ride and the seat count went negative.
+  Widget _buildOffSaleSeat(String seatId) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    return Tooltip(
+      message: '$seatId — not offered on this ride',
+      child: Container(
+        width: 42,
+        height: 42,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isDarkMode
+              ? Colors.white.withValues(alpha: 0.02)
+              : Colors.black.withValues(alpha: 0.02),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDarkMode
+                ? Colors.white.withValues(alpha: 0.06)
+                : Colors.black.withValues(alpha: 0.06),
+          ),
+        ),
+        child: Icon(Icons.remove, size: 14, color: Colors.grey.withValues(alpha: 0.5)),
+      ),
+    );
+  }
+
   // Helper to build a single clickable seat container
   Widget _buildSeatItem(String seatId) {
+    // Seats beyond the ride's declared capacity are never bookable.
+    final seatNum = int.tryParse(seatId.replaceAll(RegExp(r'\D'), '')) ?? 0;
+    if (seatNum > _ride.totalSeats) return _buildOffSaleSeat(seatId);
+
     final isBooked = _ride.bookedSeats.contains(seatId);
     final isSelected = _selectedSeats.contains(seatId);
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -401,9 +437,25 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
   @override
   Widget build(BuildContext context) {
     // If a seat we selected was just booked by someone else, drop it from the
-    // selection so the total stays honest.
-    _selectedSeats.removeWhere(_ride.bookedSeats.contains);
-    final double totalPrice = _selectedSeats.length * widget.ride.price;
+    // selection so the total stays honest. (Scheduled instead of mutated
+    // in-place, so the widget tree and the state never disagree mid-build.)
+    final stolen = _selectedSeats.where(_ride.bookedSeats.contains).toList();
+    if (stolen.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _selectedSeats.removeWhere(_ride.bookedSeats.contains));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.orange[800],
+            content: Text(
+                'Seat ${stolen.join(", ")} was just taken by someone else — please pick another.'),
+          ),
+        );
+      });
+    }
+    final liveSelection =
+        _selectedSeats.where((s) => !_ride.bookedSeats.contains(s)).toList();
+    final double totalPrice = liveSelection.length * widget.ride.price;
 
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final modalBgColor = isDarkMode ? const Color(0xFF0F172A) : Colors.white;
@@ -495,6 +547,8 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
                 _buildLegendItem("Selected", const Color(0xFF6366F1)),
                 const SizedBox(width: 16),
                 _buildLegendItem("Booked", Colors.red.withValues(alpha: 0.3)),
+                const SizedBox(width: 16),
+                _buildLegendItem("N/A", Colors.grey.withValues(alpha: 0.2)),
               ],
             ),
             const SizedBox(height: 24),
@@ -511,9 +565,9 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _selectedSeats.isEmpty
+                        liveSelection.isEmpty
                             ? "SELECT A SEAT"
-                            : "TOTAL · ${_selectedSeats.length} SEAT${_selectedSeats.length > 1 ? 'S' : ''}",
+                            : "TOTAL · ${liveSelection.length} SEAT${liveSelection.length > 1 ? 'S' : ''}",
                         style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold),
                       ),
                       Text(
@@ -524,15 +578,15 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
                           color: isDarkMode ? Colors.white : Colors.black,
                         ),
                       ),
-                      if (_selectedSeats.length > 1)
+                      if (liveSelection.length > 1)
                         Text(
-                          "₹${widget.ride.price.toInt()} × ${_selectedSeats.length} (${_selectedSeats.join(', ')})",
+                          "₹${widget.ride.price.toInt()} × ${liveSelection.length} (${liveSelection.join(', ')})",
                           style: const TextStyle(fontSize: 10, color: Colors.grey),
                         ),
                     ],
                   ),
                   ElevatedButton(
-                    onPressed: _selectedSeats.isEmpty
+                    onPressed: liveSelection.isEmpty
                         ? null
                         : () async {
                             // Capture navigator/messenger/provider BEFORE any
@@ -548,7 +602,7 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
                             // 1. Update ride in provider / Firebase (record who booked)
                             final booked = await rideProvider.bookSeats(
                               widget.ride.id,
-                              List.from(_selectedSeats),
+                              List.from(liveSelection),
                               name: profile.name,
                               phone: profile.phone,
                             );
@@ -576,15 +630,15 @@ class _SeatSelectorModalState extends State<SeatSelectorModal> {
                               to: widget.ride.to,
                               date: widget.ride.date,
                               time: widget.ride.time,
-                              seatIds: List.from(_selectedSeats),
-                              totalPaid: _selectedSeats.length * widget.ride.price,
+                              seatIds: List.from(liveSelection),
+                              totalPaid: totalPrice,
                               status: 'upcoming',
                               bookedAt: DateTime.now(),
                             );
                             await LocalStorageService.saveTrip(trip);
                             await LocalStorageService.addNotification(
                               '🎫 Seats Confirmed — ${trip.bookingRef}',
-                              '${_selectedSeats.length} seat(s) booked on ${widget.ride.vehicleName} from ${widget.ride.from} → ${widget.ride.to}',
+                              '${liveSelection.length} seat(s) booked on ${widget.ride.vehicleName} from ${widget.ride.from} → ${widget.ride.to}',
                             );
 
                             // 3. Navigate to confirmation

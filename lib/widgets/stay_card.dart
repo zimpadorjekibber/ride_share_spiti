@@ -2,11 +2,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/stay_model.dart';
 import '../screens/driver_screen.dart';
+import '../services/local_storage_service.dart';
 import '../services/proximity_service.dart';
 import '../services/verified_phones_service.dart';
 import 'review_sheet.dart';
 import 'verified_badge.dart';
 import 'app_network_image.dart';
+import '../services/phone_utils.dart';
 
 class StayCard extends StatelessWidget {
   final Stay stay;
@@ -15,7 +17,7 @@ class StayCard extends StatelessWidget {
   final Color subText;
   final VoidCallback onBook;
   final VoidCallback onTrack;
-  final String? myPhone; // if == stay.phone, show Edit
+  final String? myPhone; // same number as the owner → show Edit
   final double? userLat;
   final double? userLng;
 
@@ -49,7 +51,7 @@ class StayCard extends StatelessWidget {
     final hasUploadedPhoto = isPhotoUrl || (stay.photoPath.isNotEmpty && File(stay.photoPath).existsSync());
 
     final hasWarnings = stay.safetyFlags.isNotEmpty || stay.rating < 4.0;
-    final isMine = myPhone != null && myPhone!.isNotEmpty && myPhone == stay.phone;
+    final isMine = myPhone != null && samePhone(myPhone!, stay.phone);
     final full = stay.effectivelyFull;
     final freeCount = stay.roomUnits.isNotEmpty ? stay.vacantRooms : stay.roomsAvailable;
 
@@ -89,27 +91,18 @@ class StayCard extends StatelessWidget {
                             width: double.infinity,
                             fit: BoxFit.cover,
                           ))
-                    : Image.network(
-                        imageUrl,
-                        height: 140,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
+                    // Stock photos only for demo/seed listings — a real host
+                    // without a photo gets an honest branded placeholder, not
+                    // someone else's hotel picture.
+                    : !LocalStorageService.isDemoId(stay.id)
+                        ? _placeholderCover()
+                        : Image.network(
+                            imageUrl,
                             height: 140,
                             width: double.infinity,
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Color(0xFF0D9488), Color(0xFF0F766E)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: const Icon(Icons.cabin, color: Colors.white, size: 48),
-                          );
-                        },
-                      ),
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => _placeholderCover(),
+                          ),
                 // Cover gradient overlay
                 Positioned.fill(
                   child: Container(
@@ -261,6 +254,20 @@ class StayCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (stay.village.isNotEmpty) ...[
+                    Row(
+                      children: [
+                        const Icon(Icons.place, size: 12, color: Color(0xFF0D9488)),
+                        const SizedBox(width: 4),
+                        Text(
+                          stay.village,
+                          style: const TextStyle(
+                              color: Color(0xFF0D9488), fontSize: 11, fontWeight: FontWeight.w800),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                  ],
                   Text(
                     stay.description,
                     maxLines: 2,
@@ -520,6 +527,23 @@ class StayCard extends StatelessWidget {
         ),
       ),
       ),
+    );
+  }
+
+  /// Branded gradient cover used when the host has not uploaded a photo.
+  Widget _placeholderCover() {
+    return Container(
+      height: 140,
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF0D9488), Color(0xFF0F766E)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      alignment: Alignment.center,
+      child: const Icon(Icons.cabin, color: Colors.white, size: 48),
     );
   }
 

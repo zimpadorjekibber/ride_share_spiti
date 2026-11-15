@@ -41,6 +41,29 @@ class RideCard extends StatelessWidget {
     }
   }
 
+  /// `File.existsSync()` was called on every rebuild — a disk stat per card,
+  /// per frame, while the list scrolls. Memoised per path instead.
+  static final Map<String, bool> _localPhotoCache = {};
+  static bool _localPhotoExists(String path) =>
+      _localPhotoCache[path] ??= File(path).existsSync();
+
+  /// "2026-08-29" is not how anyone reads a departure date.
+  /// Renders "Aaj · 29 Aug" / "Kal · 30 Aug" / "31 Aug".
+  static String prettyDate(String raw) {
+    final d = DateTime.tryParse(raw.trim());
+    if (d == null) return raw;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final label = '${d.day} ${months[d.month - 1]}';
+    final now = DateTime.now();
+    final days = DateTime(d.year, d.month, d.day)
+        .difference(DateTime(now.year, now.month, now.day))
+        .inDays;
+    if (days == 0) return 'Aaj · $label';
+    if (days == 1) return 'Kal · $label';
+    return label;
+  }
+
   String getVehicleName(VehicleType type) {
     switch (type) {
       case VehicleType.taxi:
@@ -129,7 +152,7 @@ class RideCard extends StatelessWidget {
           // Header Row
           Row(
             children: [
-              (ride.photoPath.startsWith('http') || (ride.photoPath.isNotEmpty && File(ride.photoPath).existsSync()))
+              (ride.photoPath.startsWith('http') || (ride.photoPath.isNotEmpty && _localPhotoExists(ride.photoPath)))
                   ? ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: ride.photoPath.startsWith('http')
@@ -338,14 +361,24 @@ class RideCard extends StatelessWidget {
             spacing: 12,
             runSpacing: 8,
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.calendar_today, size: 12, color: Colors.grey),
-                  const SizedBox(width: 4),
-                  Text(ride.date, style: TextStyle(fontSize: 11, color: secondaryTextColor)),
-                ],
-              ),
+              Builder(builder: (_) {
+                final label = prettyDate(ride.date);
+                final isToday = label.startsWith('Aaj');
+                final color = isToday ? const Color(0xFF10B981) : secondaryTextColor;
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.calendar_today,
+                        size: 12, color: isToday ? const Color(0xFF10B981) : Colors.grey),
+                    const SizedBox(width: 4),
+                    Text(label,
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: color,
+                            fontWeight: isToday ? FontWeight.w800 : FontWeight.normal)),
+                  ],
+                );
+              }),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

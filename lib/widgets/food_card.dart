@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/food_model.dart';
 import '../screens/host_food_screen.dart';
+import '../services/local_storage_service.dart';
 import '../services/proximity_service.dart';
 import '../services/verified_phones_service.dart';
 import 'photo_picker_field.dart';
 import 'review_sheet.dart';
 import 'verified_badge.dart';
+import '../services/phone_utils.dart';
 
 class FoodCard extends StatelessWidget {
   final FoodPlace place;
@@ -15,7 +17,7 @@ class FoodCard extends StatelessWidget {
   final Color primaryText;
   final Color subText;
   final VoidCallback onContact;
-  final String? myPhone; // if == place.phone, show Edit
+  final String? myPhone; // same number as the owner → show Edit
   final double? userLat;
   final double? userLng;
 
@@ -57,9 +59,13 @@ class FoodCard extends StatelessWidget {
       'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=400&q=80',
       'https://images.unsplash.com/photo-1496116218417-1a781b1c416c?auto=format&fit=crop&w=400&q=80',
     ];
-    final mockUrl = mockImages[place.mockPhotoIndex % mockImages.length];
+    // Stock photos only for demo/seed listings — a real cook without photos
+    // gets the branded gradient placeholder, not a random restaurant picture.
+    final mockUrl = LocalStorageService.isDemoId(place.id)
+        ? mockImages[place.mockPhotoIndex % mockImages.length]
+        : '';
     final hasWarnings = place.safetyFlags.isNotEmpty || place.rating < 4.0;
-    final isMine = myPhone != null && myPhone!.isNotEmpty && myPhone == place.phone;
+    final isMine = myPhone != null && samePhone(myPhone!, place.phone);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -577,6 +583,7 @@ class _PhotoCarouselState extends State<_PhotoCarousel> {
   }
 
   Widget _img(String p) {
+    if (p.isEmpty) return _fallback();
     if (p.startsWith('http')) {
       return Image.network(p, height: widget.height, width: double.infinity, fit: BoxFit.cover,
           errorBuilder: (_, _, _) => _fallback());

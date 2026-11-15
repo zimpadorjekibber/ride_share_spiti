@@ -6,6 +6,7 @@ import '../widgets/food_card.dart';
 import '../widgets/ad_carousel.dart';
 import '../services/local_storage_service.dart';
 import 'post_food_request_screen.dart';
+import '../services/dialer.dart';
 
 class FoodFinderScreen extends StatefulWidget {
   const FoodFinderScreen({super.key});
@@ -138,13 +139,7 @@ class _FoodFinderScreenState extends State<FoodFinderScreen> {
                       userLng: _myLng,
                       onContact: () {
                         HapticFeedback.mediumImpact();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Calling ${places[i].ownerName} at ${places[i].phone}...'),
-                            backgroundColor: _accent,
-                            duration: const Duration(seconds: 2),
-                          ),
-                        );
+                        dialPhone(context, places[i].phone);
                       },
                     ),
                   ),

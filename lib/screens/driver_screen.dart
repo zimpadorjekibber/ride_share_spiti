@@ -65,11 +65,16 @@ class _DriverScreenState extends State<DriverScreen> {
       );
 
   Future<void> _pickDate() async {
+    // Clamp so an old date (e.g. editing a ride created days ago) never falls
+    // before firstDate, which would crash the picker's assertion.
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final initial = _selectedDate.isBefore(today) ? today : _selectedDate;
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 90)),
+      initialDate: initial,
+      firstDate: today,
+      lastDate: today.add(const Duration(days: 90)),
       builder: _pickerTheme,
     );
     if (picked != null) {
@@ -144,6 +149,7 @@ class _DriverScreenState extends State<DriverScreen> {
   final Set<String> _stayAmenities = {};
   final Map<String, String> _amenityPhotoPaths = {}; // amenity → local path / URL
   String _stayPropertyType = 'Homestay';
+  String _stayVillage = 'Kaza Center'; // searchable village (GPS alone isn't)
   String _stayPhotoPath = '';
   String _vehiclePhotoPath = '';
   String _licensePath = '';
@@ -163,6 +169,9 @@ class _DriverScreenState extends State<DriverScreen> {
       _interiorUploaded = s.hasGeyser;
       _licenseUploaded = s.foodIncluded;
       _stayPropertyType = s.propertyType;
+      if (s.village.isNotEmpty && kSpitiVillages.contains(s.village)) {
+        _stayVillage = s.village;
+      }
       _stayAmenities.addAll(s.amenities);
       _amenityPhotoPaths.addAll(s.amenityPhotos);
       _stayPhotoPath = s.photoPath;
@@ -181,6 +190,19 @@ class _DriverScreenState extends State<DriverScreen> {
       _priceController.text = r.price.toInt().toString();
       _vehiclePhotoPath = r.photoPath;
       _selectedLocation = LatLng(r.lat, r.lng);
+      // Pre-fill the pickers with the ride's existing departure date & time.
+      // Without this, saving an edit silently reset the time to the 08:00
+      // default and ignored any newly picked date.
+      final d = DateTime.tryParse(r.date.trim());
+      if (d != null) _selectedDate = d;
+      final tp = r.time.split(':');
+      if (tp.length == 2) {
+        final h = int.tryParse(tp[0].trim());
+        final m = int.tryParse(tp[1].trim());
+        if (h != null && m != null && h >= 0 && h < 24 && m >= 0 && m < 60) {
+          _selectedTime = TimeOfDay(hour: h, minute: m);
+        }
+      }
     }
   }
 
@@ -1440,7 +1462,7 @@ class _DriverScreenState extends State<DriverScreen> {
             ? "Traditional mud-brick Spiti homestay."
             : _plateController.text.trim(),
         pricePerNight: double.tryParse(_priceController.text) ?? 1200.0,
-        roomsAvailable: _totalSeats, // Reused capacity as room count
+        roomsAvailable: _totalSeats.clamp(1, 10), // Reused capacity as room count
         hasBukhari: _exteriorUploaded,
         hasGeyser: _interiorUploaded,
         foodIncluded: _licenseUploaded,
@@ -1450,6 +1472,7 @@ class _DriverScreenState extends State<DriverScreen> {
         safetyFlags: edit?.safetyFlags ?? [],
         mockPhotoIndex: edit?.mockPhotoIndex ?? (DateTime.now().millisecondsSinceEpoch % 4),
         propertyType: _stayPropertyType,
+        village: _stayVillage,
         amenities: _stayAmenities.toList(),
         photoPath: stayPhoto,
         isFull: edit?.isFull ?? false,
@@ -1506,7 +1529,9 @@ class _DriverScreenState extends State<DriverScreen> {
         bookedSeats: editR?.bookedSeats ?? [],
         from: _fromController.text,
         to: _toController.text,
-        date: editR != null ? editR.date : _selectedDate.toString().split(' ')[0],
+        // _selectedDate is pre-filled from the ride on edit, so the picker's
+        // value is correct for both new and edited rides.
+        date: _selectedDate.toString().split(' ')[0],
         time: formattedTime,
         price: double.tryParse(_priceController.text) ?? 500.0,
         lat: _selectedLocation!.latitude,
@@ -2081,7 +2106,10 @@ class _DriverScreenState extends State<DriverScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<int>(
-                      initialValue: _totalSeats > 10 ? 3 : _totalSeats,
+                      // Clamp: _totalSeats may still hold a vehicle capacity
+                      // (e.g. 30 for a bus) when switching to the stay form —
+                      // the shown value and the saved value must match.
+                      initialValue: _totalSeats.clamp(1, 10),
                       isExpanded: true,
                       dropdownColor: Theme.of(context).colorScheme.surface,
                       style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
@@ -2105,6 +2133,33 @@ class _DriverScreenState extends State<DriverScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 12),
+              // Village — searchable location (travellers search by village name,
+              // GPS pin alone can't be text-searched).
+              DropdownButtonFormField<String>(
+                initialValue: _stayVillage,
+                isExpanded: true,
+                dropdownColor: Theme.of(context).colorScheme.surface,
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
+                decoration: InputDecoration(
+                  labelText: "VILLAGE / AREA (travellers search by this)",
+                  labelStyle: const TextStyle(color: Colors.grey, fontSize: 9),
+                  prefixIcon: const Icon(Icons.location_on_outlined, size: 18, color: Color(0xFF0D9488)),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.15)),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: const BorderSide(color: Color(0xFF0D9488)),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                ),
+                items: kSpitiVillages
+                    .map((v) => DropdownMenuItem(value: v, child: Text(v)))
+                    .toList(),
+                onChanged: (v) => setState(() => _stayVillage = v ?? _stayVillage),
               ),
               const SizedBox(height: 20),
               Text(

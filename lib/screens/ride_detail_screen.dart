@@ -1,8 +1,13 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/ride_model.dart';
+import '../services/verified_phones_service.dart';
+import '../widgets/app_network_image.dart';
 import '../widgets/seat_selector.dart';
+import '../widgets/verified_badge.dart';
 
 class RideDetailScreen extends StatelessWidget {
   final Ride ride;
@@ -35,6 +40,29 @@ class RideDetailScreen extends StatelessWidget {
     if (available == 0) return Colors.red;
     if (available <= 2) return Colors.amber;
     return const Color(0xFF10B981);
+  }
+
+  bool get _hasVehiclePhoto =>
+      ride.photoPath.startsWith('http') ||
+      (ride.photoPath.isNotEmpty && File(ride.photoPath).existsSync());
+
+  /// Copies a shareable summary of the ride to the clipboard (no extra
+  /// share-sheet dependency needed — users paste it into WhatsApp etc.).
+  Future<void> _shareRide(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final text = '🚗 Spiti Setu Ride\n'
+        '${ride.from} → ${ride.to}\n'
+        '📅 ${ride.date} · 🕐 ${ride.time}\n'
+        '${getVehicleEmoji(ride.vehicleType)} ${ride.vehicleName} (${ride.plateNumber})\n'
+        '💺 ${ride.availableSeats} seats free · ₹${ride.price.toInt()}/seat\n'
+        '👤 ${ride.driverName} · 📞 ${ride.phone}';
+    await Clipboard.setData(ClipboardData(text: text));
+    messenger.showSnackBar(
+      const SnackBar(
+        backgroundColor: Color(0xFF10B981),
+        content: Text('Ride details copied — WhatsApp par paste karke share karein!'),
+      ),
+    );
   }
 
   @override
@@ -75,9 +103,10 @@ class RideDetailScreen extends StatelessWidget {
                 child: CircleAvatar(
                   backgroundColor: cardBg,
                   child: IconButton(
+                    tooltip: 'Share ride details',
                     icon: const Icon(Icons.share_outlined,
                         color: Color(0xFF6366F1), size: 18),
-                    onPressed: () {},
+                    onPressed: () => _shareRide(context),
                   ),
                 ),
               ),
@@ -137,28 +166,51 @@ class RideDetailScreen extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                // 📸 Verified Gallery Carousel
-                const Text(
-                  "📸 Verified Vehicle & Driver Credentials",
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF818CF8)),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 100,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      _buildPhotoThumbnail("Exterior Photo", "https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&q=80&w=400", cardBg, border, primaryText),
-                      const SizedBox(width: 10),
-                      _buildPhotoThumbnail("Interior Photo", "https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&q=80&w=400", cardBg, border, primaryText),
-                      const SizedBox(width: 10),
-                      _buildDocStatusCard("🪪 Driver License", "License Verified HP", Colors.green, cardBg, border, primaryText, subText),
-                      const SizedBox(width: 10),
-                      _buildDocStatusCard("📝 Vehicle RC Book", "RC Card Verified", Colors.green, cardBg, border, primaryText, subText),
-                    ],
+                // 📸 Driver-uploaded vehicle photo (only shown when one exists —
+                // no stock photos or fake "verified" document claims).
+                if (_hasVehiclePhoto) ...[
+                  const Text(
+                    "📸 Vehicle Photo",
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF818CF8)),
                   ),
-                ),
-                const SizedBox(height: 18),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: SizedBox(
+                      height: 170,
+                      width: double.infinity,
+                      child: ride.photoPath.startsWith('http')
+                          ? AppNetworkImage(ride.photoPath)
+                          : Image.file(File(ride.photoPath), fit: BoxFit.cover),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                ],
+                // Honest verification status: badge only if admin actually
+                // verified this driver's phone number.
+                if (VerifiedPhonesService.isVerified(ride.phone)) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const VerifiedBadge(),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Admin-verified driver — phone number confirmed by the Spiti Setu team.",
+                            style: TextStyle(color: primaryText, fontSize: 11.5, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                ],
                 // ── Header card ──
                 Container(
                   padding: const EdgeInsets.all(18),
@@ -472,73 +524,4 @@ class RideDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildPhotoThumbnail(String label, String url, Color cardBg, Color border, Color primaryText) {
-    return Container(
-      width: 115,
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: border),
-        image: DecorationImage(
-          image: NetworkImage(url),
-          fit: BoxFit.cover,
-          colorFilter: ColorFilter.mode(Colors.black.withValues(alpha: 0.15), BlendMode.darken),
-        ),
-      ),
-      padding: const EdgeInsets.all(8),
-      alignment: Alignment.bottomLeft,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.65),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDocStatusCard(String label, String status, Color color, Color cardBg, Color border, Color primaryText, Color? subText) {
-    return Container(
-      width: 120,
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: border),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.verified, color: color, size: 14),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(color: primaryText, fontSize: 10, fontWeight: FontWeight.bold),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            status,
-            style: const TextStyle(color: Colors.grey, fontSize: 8),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            "VERIFIED & SECURE",
-            style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-    );
-  }
 }

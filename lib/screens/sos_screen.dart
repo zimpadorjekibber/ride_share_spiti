@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'lost_found_screen.dart';
+import '../services/dialer.dart';
 
 class SosScreen extends StatefulWidget {
   const SosScreen({super.key});
@@ -461,14 +462,10 @@ class _SosScreenState extends State<SosScreen>
       Color primaryText, Color border) {
     return GestureDetector(
       onTap: () {
+        // This card used to only *say* it was calling. On an emergency screen
+        // that is the worst possible bug — it now opens the dialer for real.
         HapticFeedback.mediumImpact();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Calling ${contact.name}...'),
-            backgroundColor: contact.color,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        dialPhone(context, contact.number);
       },
       child: Container(
         padding: const EdgeInsets.all(14),

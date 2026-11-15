@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'passenger_request_model.dart' show parseFlexibleDate;
 import '../services/firebase_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/phone_utils.dart';
@@ -293,7 +294,7 @@ class FoodRequest {
         note: map['note'] ?? '',
         lat: (map['lat'] ?? 0.0).toDouble(),
         lng: (map['lng'] ?? 0.0).toDouble(),
-        createdAt: DateTime.tryParse(map['createdAt'] ?? '') ?? DateTime.now(),
+        createdAt: parseFlexibleDate(map['createdAt']),
       );
 }
 

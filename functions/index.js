@@ -110,3 +110,82 @@ exports.onFoodRequest = onDocumentCreated("food_requests/{id}", async (event) =>
     `${r.seekerName || "Someone"} wants ${r.cuisineWanted || "a meal"} in ${r.locationLooking || "Spiti"} for ${r.peopleCount || 1} — ${r.whenNeeded || "soon"}.`
   );
 });
+
+// ── Scheduled cleanup ───────────────────────────────────────────────────
+//
+// Two things used to pile up in Firestore forever:
+//
+//   1. Broadcast requests (ride / room / food). The app hid them after 24h
+//      client-side, but the documents stayed — the collection grew without
+//      bound and every client kept re-downloading the whole thing.
+//   2. Rides whose departure date has passed. Every client used to delete
+//      these itself on every snapshot, so N phones raced to delete the same
+//      M documents (N×M writes, plus a permission error for each loser).
+//
+// Both are now handled here, once a day, by one trusted caller.
+
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { getFirestore, Timestamp } = require("firebase-admin/firestore");
+
+/** Requests older than this go. Matches LocalStorageService.requestValidity. */
+const REQUEST_TTL_HOURS = 24;
+
+/** 'YYYY-MM-DD' for today in IST — rides are dated in the driver's local time. */
+const todayIST = () =>
+  new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+
+/** Deletes in batches of 400 (Firestore's hard limit is 500 writes/batch). */
+const deleteAll = async (db, docs) => {
+  for (let i = 0; i < docs.length; i += 400) {
+    const batch = db.batch();
+    docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+  return docs.length;
+};
+
+/**
+ * createdAt is a Timestamp on every new write, but documents written before
+ * the app switched to server timestamps hold an ISO string. Anything we
+ * cannot date is treated as expired — it can only predate that switch.
+ */
+const createdAtMillis = (v) => {
+  if (!v) return 0;
+  if (v instanceof Timestamp) return v.toMillis();
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const t = Date.parse(v);
+    return Number.isNaN(t) ? 0 : t;
+  }
+  return 0;
+};
+
+exports.cleanupExpired = onSchedule(
+  { schedule: "every day 03:30", timeZone: "Asia/Kolkata" },
+  async () => {
+    const db = getFirestore();
+    const cutoff = Date.now() - REQUEST_TTL_HOURS * 3600 * 1000;
+    const summary = {};
+
+    // 1. Stale broadcast requests.
+    for (const coll of ["passenger_requests", "stay_requests", "food_requests"]) {
+      const snap = await db.collection(coll).get();
+      const stale = snap.docs.filter(
+        (d) => createdAtMillis(d.data().createdAt) < cutoff
+      );
+      summary[coll] = await deleteAll(db, stale);
+    }
+
+    // 2. Rides whose departure day is over. `date` is a 'YYYY-MM-DD' string,
+    //    so a string comparison is also a date comparison. Rides with a
+    //    missing or malformed date are left alone — same rule as the app's
+    //    Ride.isExpired, which never expires an unparseable date.
+    const rides = await db.collection("rides").where("date", "<", todayIST()).get();
+    summary.rides = await deleteAll(
+      db,
+      rides.docs.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d.data().date || ""))
+    );
+
+    console.log("cleanupExpired removed:", summary);
+  }
+);
